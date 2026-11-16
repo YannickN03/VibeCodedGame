@@ -1,17 +1,16 @@
-//! "Juice": particles, hard-drop light trails, board impact spring, lock
-//! flashes, line-clear flashes and floating callouts.
+//! Board-space "juice" of Blocks: hard-drop light trails, board impact
+//! spring, lock flashes, line-clear flashes and the Zen dissolve.
 //!
-//! Simulation of the effects is pure math (testable); drawing uses macroquad.
+//! Particles, callouts and screen flashes are shared arcade systems driven
+//! by `FrameEvents`; only effects that live inside the board stay here.
+//! Simulation is pure math (testable); drawing uses macroquad.
 
 use macroquad::prelude::*;
 
 use crate::core::PieceKind;
-use crate::core::rng::SplitMix64;
+use crate::presentation::theme::with_alpha;
 
-use super::blocks;
-use super::stage::Stage;
-use super::text::{self, Align, Size};
-use super::theme::with_alpha;
+use super::mino;
 
 /// Hard-drop trail fade time.
 pub const TRAIL_SECS: f32 = 0.18;
@@ -19,8 +18,6 @@ pub const TRAIL_SECS: f32 = 0.18;
 pub const LOCK_FLASH_SECS: f32 = 0.08;
 /// Line-clear row flash duration.
 pub const ROW_FLASH_SECS: f32 = 0.22;
-/// Callout lifetime.
-pub const CALLOUT_SECS: f32 = 1.25;
 
 /// Damped spring used for the board impact bounce.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -54,16 +51,6 @@ impl Spring {
 }
 
 #[derive(Clone, Debug)]
-struct Particle {
-    pos: Vec2,
-    vel: Vec2,
-    life: f32,
-    max_life: f32,
-    size: f32,
-    color: Color,
-}
-
-#[derive(Clone, Debug)]
 struct Trail {
     x: f32,
     y_top: f32,
@@ -93,27 +80,12 @@ struct Dissolve {
 /// Dissolve duration (after its individual delay).
 pub const DISSOLVE_SECS: f32 = 0.9;
 
-#[derive(Clone, Debug)]
-struct Callout {
-    text: String,
-    pos: Vec2,
-    age: f32,
-    color: Color,
-    size: Size,
-}
-
 /// All live effects.
 pub struct Fx {
-    rng: SplitMix64,
-    particles: Vec<Particle>,
     trails: Vec<Trail>,
     flashes: Vec<Flash>,
-    callouts: Vec<Callout>,
     dissolves: Vec<Dissolve>,
     pub spring: Spring,
-    /// Screen-wide flash `0..1` (overdrive, quads).
-    pub screen_flash: f32,
-    pub screen_flash_color: Color,
 }
 
 impl Default for Fx {
@@ -125,50 +97,18 @@ impl Default for Fx {
 impl Fx {
     pub fn new() -> Self {
         Fx {
-            rng: SplitMix64::new(0xF00D),
-            particles: Vec::with_capacity(512),
             trails: Vec::new(),
             flashes: Vec::new(),
-            callouts: Vec::new(),
             dissolves: Vec::new(),
             spring: Spring::default(),
-            screen_flash: 0.0,
-            screen_flash_color: WHITE,
         }
     }
 
     pub fn clear(&mut self) {
-        self.particles.clear();
         self.trails.clear();
         self.flashes.clear();
-        self.callouts.clear();
         self.dissolves.clear();
         self.spring = Spring::default();
-        self.screen_flash = 0.0;
-    }
-
-    fn rand(&mut self, lo: f32, hi: f32) -> f32 {
-        lo + (hi - lo) * self.rng.next_f32()
-    }
-
-    pub fn burst(&mut self, center: Vec2, color: Color, count: usize, speed: f32) {
-        for _ in 0..count {
-            if self.particles.len() >= 900 {
-                break;
-            }
-            let ang = self.rand(0.0, std::f32::consts::TAU);
-            let sp = self.rand(0.25, 1.0) * speed;
-            let life = self.rand(0.35, 0.8);
-            let size = self.rand(2.0, 5.0);
-            self.particles.push(Particle {
-                pos: center,
-                vel: vec2(ang.cos() * sp, ang.sin() * sp - speed * 0.35),
-                life,
-                max_life: life,
-                size,
-                color,
-            });
-        }
     }
 
     pub fn trail(&mut self, x: f32, y_top: f32, y_bottom: f32, w: f32, color: Color) {
@@ -191,26 +131,7 @@ impl Fx {
         });
     }
 
-    pub fn callout(&mut self, text: impl Into<String>, pos: Vec2, color: Color, size: Size) {
-        // Stack callouts so simultaneous ones don't overlap.
-        let live = self.callouts.iter().filter(|c| c.age < 0.5).count() as f32;
-        self.callouts.push(Callout {
-            text: text.into(),
-            pos: pos + vec2(0.0, live * size.px() * 1.25),
-            age: 0.0,
-            color,
-            size,
-        });
-    }
-
     pub fn update(&mut self, dt: f32) {
-        for p in self.particles.iter_mut() {
-            p.vel.y += 900.0 * dt;
-            p.vel *= 1.0 - 1.8 * dt;
-            p.pos += p.vel * dt;
-            p.life -= dt;
-        }
-        self.particles.retain(|p| p.life > 0.0);
         for t in self.trails.iter_mut() {
             t.age += dt;
         }
@@ -219,16 +140,11 @@ impl Fx {
             f.age += dt;
         }
         self.flashes.retain(|f| f.age < f.dur);
-        for c in self.callouts.iter_mut() {
-            c.age += dt;
-        }
-        self.callouts.retain(|c| c.age < CALLOUT_SECS);
         for d in self.dissolves.iter_mut() {
             d.age += dt;
         }
         self.dissolves.retain(|d| d.age < DISSOLVE_SECS);
         self.spring.update(dt);
-        self.screen_flash = (self.screen_flash - dt * 2.5).max(0.0);
     }
 
     /// Effects that live *inside* the board (drawn with board offset).
@@ -249,7 +165,7 @@ impl Fx {
             let a = 1.0 - ease;
             let s = 32.0 * (1.0 - 0.35 * ease);
             let off = (32.0 - s) * 0.5;
-            blocks::mino(
+            mino::mino(
                 d.pos.x + off,
                 d.pos.y + off - 26.0 * ease,
                 s,
@@ -282,61 +198,6 @@ impl Fx {
                 f.rect.w,
                 f.rect.h,
                 with_alpha(f.color, f.color.a * k),
-            );
-        }
-    }
-
-    /// Effects on top of everything.
-    pub fn draw_overlay(&self, stage: &Stage) {
-        for p in &self.particles {
-            let k = p.life / p.max_life;
-            let s = p.size * (0.4 + 0.6 * k);
-            draw_rectangle(
-                p.pos.x - s * 0.5,
-                p.pos.y - s * 0.5,
-                s,
-                s,
-                with_alpha(p.color, k),
-            );
-        }
-        for c in &self.callouts {
-            let t = c.age / CALLOUT_SECS;
-            let rise = 46.0 * (1.0 - (1.0 - t).powi(3));
-            let alpha = if t < 0.08 {
-                t / 0.08
-            } else {
-                (1.0 - (t - 0.6).max(0.0) / 0.4).clamp(0.0, 1.0)
-            };
-            let y = c.pos.y - rise;
-            // pop-in glow ring
-            if t < 0.25 {
-                let w = text::measure(stage, &c.text, c.size) + 30.0;
-                let g = 1.0 - t / 0.25;
-                draw_rectangle(
-                    c.pos.x - w * 0.5,
-                    y - 6.0,
-                    w,
-                    c.size.px() + 12.0,
-                    with_alpha(c.color, 0.18 * g),
-                );
-            }
-            text::label(
-                stage,
-                &c.text,
-                c.pos.x,
-                y,
-                c.size,
-                with_alpha(c.color, alpha),
-                Align::Center,
-            );
-        }
-        if self.screen_flash > 0.0 {
-            draw_rectangle(
-                0.0,
-                0.0,
-                super::stage::VIRTUAL_W,
-                super::stage::VIRTUAL_H,
-                with_alpha(self.screen_flash_color, self.screen_flash * 0.18),
             );
         }
     }

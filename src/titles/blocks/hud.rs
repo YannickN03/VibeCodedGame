@@ -7,12 +7,12 @@ use crate::core::flow::FLOW_MAX;
 use crate::core::game::LOCK_DELAY;
 use crate::core::{FlowTier, GameMode, GameState};
 
-use super::blocks;
-use super::digits;
 use super::fx::Fx;
-use super::stage::Stage;
-use super::text::{self, Align, Size};
-use super::theme::{Theme, lighten, mix, with_alpha};
+use super::mino;
+use crate::presentation::digits;
+use crate::presentation::stage::Stage;
+use crate::presentation::text::{self, Align, Size};
+use crate::presentation::theme::{Theme, lighten, mix, with_alpha};
 
 /// Cell edge length in stage units.
 pub const CELL: f32 = 32.0;
@@ -138,7 +138,7 @@ fn draw_board(game: &GameState, ctx: &HudCtx, fx: &Fx, tcol: Color) {
                 if y < VISIBLE_TOP {
                     c = with_alpha(c, 0.55);
                 }
-                blocks::mino(p.x, p.y, CELL, c, Some(kind), ctx.colorblind);
+                mino::mino(p.x, p.y, CELL, c, Some(kind), ctx.colorblind);
             }
         }
     }
@@ -153,7 +153,7 @@ fn draw_board(game: &GameState, ctx: &HudCtx, fx: &Fx, tcol: Color) {
             for (x, y) in ghost.minos() {
                 if y >= VISIBLE_TOP as i32 {
                     let p = cell_pos(x, y, bounce);
-                    blocks::ghost(p.x, p.y, CELL, gcol);
+                    mino::ghost(p.x, p.y, CELL, gcol);
                 }
             }
         }
@@ -172,7 +172,7 @@ fn draw_board(game: &GameState, ctx: &HudCtx, fx: &Fx, tcol: Color) {
                 } else {
                     acol
                 };
-                blocks::mino(p.x, p.y, CELL, c, Some(game.active.kind), ctx.colorblind);
+                mino::mino(p.x, p.y, CELL, c, Some(game.active.kind), ctx.colorblind);
             }
         }
     }
@@ -219,7 +219,7 @@ fn draw_left(game: &GameState, ctx: &HudCtx, tcol: Color) {
         } else {
             mix(th.piece(k), Color::new(0.35, 0.37, 0.42, 1.0), 0.75)
         };
-        blocks::preview(k, 350.0, 128.0, 26.0, c, ctx.colorblind);
+        mino::preview(k, 350.0, 128.0, 26.0, c, ctx.colorblind);
     }
 
     // Stats
@@ -393,7 +393,7 @@ fn draw_right(game: &GameState, ctx: &HudCtx, tcol: Color) {
         if i > 0 {
             c = with_alpha(c, 0.85);
         }
-        blocks::preview(k, x + 100.0, cy, s, c, ctx.colorblind);
+        mino::preview(k, x + 100.0, cy, s, c, ctx.colorblind);
     }
 
     // Score block

@@ -5,12 +5,12 @@
 //! and `tick(dt)`; the presentation layer reads state and drains
 //! [`GameEvent`]s for juice and audio.
 
+use super::bag::SevenBag;
 use super::board::{Board, VISIBLE_TOP, drop_position, is_valid_position};
-use super::flow::{FlowMeter, FlowTier, LockFlowInput};
 use super::piece::{Piece, PieceKind, RotateDir};
-use super::rng::SevenBag;
 use super::scoring::{ClearResult, ScoreTracker, clear_label};
 use super::srs::try_rotate;
+use crate::core::flow::{FlowMeter, FlowTier, LockFlowInput};
 
 /// Lock delay in seconds.
 pub const LOCK_DELAY: f32 = 0.5;

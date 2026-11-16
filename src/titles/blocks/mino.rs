@@ -4,7 +4,7 @@ use macroquad::prelude::*;
 
 use crate::core::{PieceKind, Rotation};
 
-use super::theme::{darken, lighten, with_alpha};
+use crate::presentation::theme::{darken, lighten, with_alpha};
 
 /// Draws one mino: dark 1.5 px frame, main colour, 3D bevel (light top/left,
 /// shadow bottom/right) and an inner gloss highlight.

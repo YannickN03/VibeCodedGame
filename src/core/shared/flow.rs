@@ -95,6 +95,9 @@ pub struct LockFlowInput {
     pub combo: u32,
 }
 
+/// The reusable flow engine shared by every game of the arcade.
+pub type FlowEngine = FlowMeter;
+
 /// Flow meter state.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowMeter {
@@ -132,6 +135,13 @@ impl FlowMeter {
         if self.flow >= FLOW_MAX {
             self.overdrive_shield = OVERDRIVE_SHIELD_SECS;
         }
+    }
+
+    /// Registers a generic scoring event of any game (an apple eaten, a
+    /// combo...): adds flow and restarts the idle drain timer.
+    pub fn register_event(&mut self, amount: f32) {
+        self.idle_timer = 0.0;
+        self.add(amount);
     }
 
     /// Registers a piece lock. Returns the amount gained.

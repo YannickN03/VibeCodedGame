@@ -10,10 +10,10 @@ fn main() {
     let cli = Cli::parse(std::env::args());
     if cli.smoke_test {
         // Fully headless: no window, no GPU, no audio device needed.
-        let report = smoke::run(500);
+        let report = smoke::run(smoke::TICKS_PER_MODE);
         println!("{report}");
         std::process::exit(0);
     }
     audio::install_audio_panic_guard();
-    macroquad::Window::from_config(window_conf(), app::run(cli.demo));
+    macroquad::Window::from_config(window_conf(), app::run(cli));
 }

@@ -38,15 +38,16 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --all-targets -- -D warnings
 
-      - name: Unit & architecture tests
+      - name: Unit, architecture & plugin tests
         run: cargo test
 
       - name: Release build
         run: cargo build --release
 
       # The release exe uses the Windows GUI subsystem (no console), so wait
-      # for the process explicitly and check its exit code.
-      - name: Headless smoke test
+      # for the process explicitly and check its exit code. The smoke test
+      # plays every mode of every registered game with its bot.
+      - name: Headless smoke test (all registered games)
         shell: pwsh
         run: |
           $p = Start-Process -FilePath .\target\release\VibeCodedGame.exe -ArgumentList '--smoke-test' -Wait -PassThru -NoNewWindow

@@ -299,8 +299,31 @@ pub fn build_bank() -> Vec<(String, Vec<u8>)> {
         "zen",
         arpeggio(&[SCALE[0] * 0.5, SCALE[3] * 0.5, SCALE[0]], 0.2, 1.4, 2.5),
     );
+
+    // Generic arcade cues (see `arcade::cue`) reuse the matching voices so
+    // every title sounds consistent.
+    for (alias, source) in GENERIC_ALIASES {
+        if let Some(wav) = bank
+            .iter()
+            .find(|(n, _)| n == source)
+            .map(|(_, w)| w.clone())
+        {
+            bank.push((alias.to_string(), wav));
+        }
+    }
     bank
 }
+
+/// `(generic cue name, bank sound it is built from)`.
+pub const GENERIC_ALIASES: [(&str, &str); 7] = [
+    ("ui_move", "move"),
+    ("ui_confirm", "select"),
+    ("action_tick", "lock"),
+    ("rotate_or_turn", "rotate"),
+    ("clear_or_eat", "sparkle"),
+    ("overdrive_up", "overdrive"),
+    ("game_over", "gameover"),
+];
 
 /// Name of a tier/scale note sound in the bank.
 pub fn note_name(tier: usize, idx: usize) -> String {

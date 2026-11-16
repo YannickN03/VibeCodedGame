@@ -1,116 +1,134 @@
-//! Application state machine: menu, playing, pause and results screens.
+//! `App`: the arcade controller. It owns the [`GameRegistry`], the shared
+//! systems (audio, music, background shader, particles, callouts, save data)
+//! and the navigation between the main menu and the games.
+//!
+//! It never names a concrete game: everything goes through `dyn ArcadeTitle`.
 
 use macroquad::prelude::*;
 
+use crate::arcade::{
+    ArcadeInput, FrameEvents, GameModeInfo, GameRegistry, Nav, Screen, Selection, SessionEnd,
+    TitleContext, cue,
+};
+use crate::core::FlowTier;
 use crate::core::date::Date;
-use crate::core::{FlowTier, GameEvent, GameMode, GameStatus, TopOut};
-use crate::engine::Simulation;
-use crate::engine::autopilot::AutoPilot;
+use crate::infrastructure::Cli;
 use crate::infrastructure::clock;
-use crate::infrastructure::save::{RunRecord, SaveData, SaveStore, Settings};
+use crate::infrastructure::save::{SaveData, SaveStore, Settings, daily_key, score_key};
+use crate::titles;
 
 use super::audio::Audio;
 use super::background::Background;
-use super::blocks;
 use super::digits;
-use super::fx::{Fx, LOCK_FLASH_SECS, ROW_FLASH_SECS};
-use super::hud::{self, BOARD_W, BOARD_X, BOARD_Y, CELL, HudCtx};
-use super::input_map::{held_buttons, pressed_any};
+use super::input_map::{poll_arcade_input, pressed_any};
+use super::menu::{self, MenuAction, MenuInput, MenuState, MenuView};
+use super::music::{GAME_STAGES, Track};
+use super::settings::{self, SettingsInput, SettingsState};
 use super::stage::{Stage, VIRTUAL_H, VIRTUAL_W};
 use super::text::{self, Align, Size};
-use super::theme::{Theme, lighten, themes, with_alpha};
+use super::theme::{Theme, themes, with_alpha};
+use super::widgets::{FloatingCallouts, ModalAction, ModalKind, ModalOverlay, ParticleSystem};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Screen {
-    Menu,
-    Playing,
-    Paused,
-    Results,
-}
-
-#[derive(Clone, Debug)]
-struct ResultInfo {
-    title: &'static str,
-    score: u64,
-    lines: u32,
-    seconds: f64,
-    new_record: bool,
-}
-
-/// Interactive settings rows on the start screen.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SettingRow {
-    Das,
-    Arr,
-    Volume,
-    Sound,
-    Theme,
-    Colorblind,
-}
-
-const SETTING_ROWS: [SettingRow; 6] = [
-    SettingRow::Das,
-    SettingRow::Arr,
-    SettingRow::Volume,
-    SettingRow::Sound,
-    SettingRow::Theme,
-    SettingRow::Colorblind,
-];
-
-/// Seconds the final board stays visible before the results overlay.
-const END_DELAY: f32 = 0.9;
 /// Menu idle time before the attract-mode demo starts.
 const ATTRACT_DELAY: f32 = 25.0;
 
+/// What the results overlay shows.
+#[derive(Clone, Debug)]
+struct ResultInfo {
+    end: SessionEnd,
+    new_record: bool,
+    best: Option<String>,
+}
+
 pub struct App {
-    screen: Screen,
+    registry: GameRegistry,
+    nav: Nav,
+    menu: MenuState,
+    settings_ui: Option<SettingsState>,
     store: SaveStore,
     save: SaveData,
     themes: [Theme; 2],
-    sim: Option<Simulation>,
-    mode: GameMode,
-    menu_sel: usize,
-    fx: Fx,
+    particles: ParticleSystem,
+    callouts: FloatingCallouts,
+    flash: (Color, f32),
+    shake: f32,
     audio: Audio,
     bg: Background,
     today: Date,
-    end_timer: f32,
-    result: Option<ResultInfo>,
     stage: Stage,
-    screen_time: f32,
-    melody: usize,
-    /// Attract mode: the bot plays instead of the keyboard.
-    demo: Option<AutoPilot>,
+    time: f32,
+    result: Option<ResultInfo>,
+    /// Attract mode: a bot plays instead of the keyboard.
+    demo: bool,
+    demo_game: usize,
     idle: f32,
     last_mouse: Vec2,
+    flow: f32,
+    music_stage: usize,
 }
 
 impl App {
-    pub fn new(start_demo: bool) -> App {
-        let store = SaveStore::default_location();
+    pub fn new(cli: &Cli) -> App {
+        let (start_demo, start_game) = (cli.demo, cli.game.as_deref());
+        let registry = titles::default_registry();
+        let mut store = SaveStore::default_location();
         let save = store.load();
+        if cli.screenshot.is_some() || cli.show.is_some() {
+            // Visual-check runs may read the save but must never write it.
+            store = SaveStore::disabled();
+        }
         let audio = Audio::load(save.settings.muted, save.settings.volume as f32 / 100.0);
-        App {
-            screen: Screen::Menu,
+        let counts = mode_counts(&registry);
+        let direct = start_game.and_then(|id| registry.find(id));
+        let mut app = App {
+            registry,
+            nav: Nav::default(),
+            menu: MenuState::new(&counts),
+            settings_ui: None,
             store,
             save,
             themes: themes(),
-            sim: None,
-            mode: GameMode::Marathon,
-            menu_sel: 0,
-            fx: Fx::new(),
+            particles: ParticleSystem::new(),
+            callouts: FloatingCallouts::new(),
+            flash: (WHITE, 0.0),
+            shake: 0.0,
             audio,
             bg: Background::new(),
             today: clock::today_utc(),
-            end_timer: 0.0,
-            result: None,
             stage: Stage::compute(),
-            screen_time: 0.0,
-            melody: 0,
-            demo: None,
+            time: 0.0,
+            result: None,
+            demo: false,
+            demo_game: direct.unwrap_or(0),
             idle: if start_demo { ATTRACT_DELAY } else { 0.0 },
             last_mouse: Vec2::ZERO,
+            flow: 0.0,
+            music_stage: 0,
+        };
+        if let (Some(game), false) = (direct, start_demo) {
+            let mode = cli
+                .mode
+                .as_deref()
+                .and_then(|id| {
+                    app.registry
+                        .get(game)?
+                        .modes()
+                        .iter()
+                        .position(|m| m.id == id)
+                })
+                .unwrap_or(0);
+            app.start_game(Selection { game, mode });
         }
+        match cli.show.as_deref() {
+            Some("pause") => {
+                app.nav.pause();
+            }
+            Some("settings") => app.settings_ui = Some(SettingsState::default()),
+            // Visual check only: not persisted.
+            Some("colorblind") => app.save.settings.colorblind = true,
+            _ => {}
+        }
+        app
     }
 
     fn settings(&self) -> &Settings {
@@ -131,33 +149,94 @@ impl App {
         self.audio.volume = self.save.settings.volume as f32 / 100.0;
     }
 
-    fn set_screen(&mut self, s: Screen) {
-        self.screen = s;
-        self.screen_time = 0.0;
+    fn mode_info(&self, sel: Selection) -> Option<&'static GameModeInfo> {
+        self.registry.mode(sel.game, sel.mode)
     }
 
-    fn start_game(&mut self, mode: GameMode) {
-        self.demo = None;
-        self.idle = 0.0;
-        self.mode = mode;
-        self.today = clock::today_utc();
-        let seed = match mode {
-            GameMode::DailyVibe => self.today.seed(),
-            _ => clock::session_seed(),
+    /// Persistence key of the personal best shown for `sel`.
+    fn best_key(&self, sel: Selection) -> Option<String> {
+        let game = self.registry.get(sel.game)?.id();
+        let mode = self.mode_info(sel)?;
+        Some(if mode.is_daily {
+            daily_key(game, &self.today.iso())
+        } else {
+            score_key(game, mode.id)
+        })
+    }
+
+    fn context(&self, sel: Selection) -> TitleContext {
+        TitleContext {
+            best: self.best_key(sel).and_then(|k| self.save.highscore(&k)),
+            today_iso: self.today.iso(),
+            pulse: self.bg.pulse(),
+            settings: self.save.settings.clone(),
+        }
+    }
+
+    // ------------------------------------------------------------------ session control
+
+    fn start_game(&mut self, sel: Selection) {
+        let Some(mode) = self.mode_info(sel) else {
+            return;
         };
-        let mut sim = Simulation::new(mode, seed, self.settings().handling());
-        sim.latch_input(held_buttons());
-        self.sim = Some(sim);
-        self.fx.clear();
+        self.today = clock::today_utc();
+        let seed = if mode.is_daily {
+            self.today.seed()
+        } else {
+            clock::session_seed()
+        };
+        let ctx = self.context(sel);
+        let held = poll_arcade_input();
+        if let Some(game) = self.registry.get_mut(sel.game) {
+            game.start(mode.id, seed);
+            game.set_context(&ctx);
+            // Keys still held from the menu must not trigger actions.
+            game.on_resume(&held);
+        }
+        self.reset_effects();
         self.result = None;
-        self.end_timer = 0.0;
-        self.audio.play("select", 0.6);
-        self.set_screen(Screen::Playing);
+        self.flow = 0.0;
+        self.music_stage = 0;
+        self.audio.play(cue::UI_CONFIRM, 0.6);
+        self.nav.start(sel);
     }
 
+    fn reset_effects(&mut self) {
+        self.particles.clear();
+        self.callouts.clear();
+        self.flash.1 = 0.0;
+        self.shake = 0.0;
+    }
+
+    /// Starts the attract mode on the next game that supports a demo.
     fn start_demo(&mut self) {
-        self.start_game(GameMode::Marathon);
-        self.demo = Some(AutoPilot::relaxed(4));
+        let n = self.registry.len();
+        for k in 0..n {
+            let g = (self.demo_game + k) % n;
+            let sel = Selection { game: g, mode: 0 };
+            self.start_game(sel);
+            let supported = self
+                .registry
+                .get_mut(g)
+                .and_then(|game| game.demo_update(0.0))
+                .is_some();
+            if supported {
+                self.demo = true;
+                self.demo_game = g + 1;
+                return;
+            }
+            self.nav.to_menu();
+        }
+        self.demo = false;
+        self.idle = 0.0;
+    }
+
+    fn leave_game(&mut self) {
+        self.demo = false;
+        self.idle = 0.0;
+        self.result = None;
+        self.reset_effects();
+        self.nav.to_menu();
     }
 
     fn any_user_input(&mut self) -> bool {
@@ -167,34 +246,123 @@ impl App {
         get_last_key_pressed().is_some() || is_mouse_button_pressed(MouseButton::Left) || moved
     }
 
+    /// Applies what a title reported; returns the session end, if any.
+    fn apply_events(&mut self, ev: FrameEvents) -> Option<SessionEnd> {
+        for c in &ev.audio {
+            self.audio.play_cue(c);
+        }
+        for b in &ev.particles {
+            self.particles.burst(b.pos, b.color, b.count, b.speed);
+        }
+        for c in &ev.callouts {
+            self.callouts.add(c.text.clone(), c.pos, c.color, c.size);
+        }
+        self.shake = self.shake.max(ev.shake);
+        if let Some((c, s)) = ev.screen_flash
+            && s >= self.flash.1
+        {
+            self.flash = (c, s);
+        }
+        self.flow = ev.flow;
+        self.music_stage = ev.music_stage;
+        ev.session_end
+    }
+
+    fn finish_session(&mut self, sel: Selection, end: SessionEnd) {
+        let (Some(game), Some(mode)) = (self.registry.get(sel.game), self.mode_info(sel)) else {
+            return;
+        };
+        let mut new_record = false;
+        if end.counts_for_record {
+            new_record = self.save.record_session(
+                game.id(),
+                mode.id,
+                mode.is_daily,
+                &self.today.iso(),
+                end.value,
+                end.lower_is_better,
+            );
+            self.persist();
+        }
+        let best = self
+            .best_key(sel)
+            .and_then(|k| self.save.highscore(&k))
+            .map(|v| {
+                if mode.ranked_by_time {
+                    digits::format_time(v as f64 / 1000.0)
+                } else {
+                    v.to_string()
+                }
+            });
+        if new_record {
+            self.audio.play("levelup", 0.8);
+        }
+        self.result = Some(ResultInfo {
+            end,
+            new_record,
+            best,
+        });
+    }
+
     // ------------------------------------------------------------------ update
 
     pub fn update(&mut self, dt: f32) {
         self.stage = Stage::compute();
-        self.screen_time += dt;
+        self.time += dt;
+        self.nav.tick(dt);
         self.handle_global_keys();
 
-        let tier = self
-            .sim
-            .as_ref()
-            .filter(|_| self.screen != Screen::Menu)
-            .map(|s| s.game.tier())
-            .unwrap_or(FlowTier::Chill);
-        let bg_dt = if self.screen == Screen::Paused {
+        let tier = if self.nav.in_game() {
+            FlowTier::from_flow(self.flow)
+        } else {
+            FlowTier::Chill
+        };
+        let bg_dt = if self.nav.screen == Screen::Paused {
             dt * 0.25
         } else {
             dt
         };
         self.bg.update(bg_dt, tier.bpm());
-        if self.screen != Screen::Paused {
-            self.fx.update(dt);
+
+        if self.settings_ui.is_some() {
+            self.update_settings();
+        } else {
+            match self.nav.screen {
+                Screen::Menu => self.update_menu(dt),
+                Screen::Playing => self.update_playing(dt),
+                Screen::Ending => self.update_ending(dt),
+                Screen::Paused => self.update_paused(),
+                Screen::Results => self.update_results(),
+            }
         }
 
-        match self.screen {
-            Screen::Menu => self.update_menu(dt),
-            Screen::Playing => self.update_playing(dt),
-            Screen::Paused => self.update_paused(),
-            Screen::Results => self.update_results(),
+        if self.nav.screen != Screen::Paused {
+            self.particles.update(dt);
+            self.callouts.update(dt);
+            self.flash.1 = (self.flash.1 - dt * 2.5).max(0.0);
+            self.shake *= (1.0 - 7.0 * dt).max(0.0);
+            if self.shake < 0.05 {
+                self.shake = 0.0;
+            }
+        }
+
+        let track = self.music_track();
+        self.audio
+            .set_music(track, self.nav.screen == Screen::Paused);
+        self.audio.update_music(dt);
+    }
+
+    /// Background track for the current screen. In-game the stage comes from
+    /// the running title, so the music follows the game's intensity.
+    fn music_track(&self) -> Option<Track> {
+        match self.nav.screen {
+            Screen::Menu => Some(Track::Menu),
+            // Let the game-over / finish jingle ring out before the menu loop.
+            Screen::Results => (self.nav.screen_time > 1.5).then_some(Track::Menu),
+            Screen::Ending => None,
+            Screen::Playing | Screen::Paused => {
+                Some(Track::Game(self.music_stage.min(GAME_STAGES - 1)))
+            }
         }
     }
 
@@ -214,8 +382,32 @@ impl App {
         }
         if changed {
             self.apply_audio_settings();
-            self.audio.play("select", 0.5);
+            self.audio.play(cue::UI_CONFIRM, 0.5);
             self.persist();
+        }
+    }
+
+    fn update_settings(&mut self) {
+        let Some(state) = self.settings_ui.as_mut() else {
+            return;
+        };
+        let input = SettingsInput {
+            up: pressed_any(&[KeyCode::Up, KeyCode::W]),
+            down: pressed_any(&[KeyCode::Down, KeyCode::S]),
+            left: pressed_any(&[KeyCode::Left, KeyCode::A]),
+            right: pressed_any(&[KeyCode::Right, KeyCode::D]),
+            close: pressed_any(&[KeyCode::Tab, KeyCode::Escape, KeyCode::Enter]),
+            mouse: self.stage.mouse(),
+            click: is_mouse_button_pressed(MouseButton::Left),
+        };
+        let out = state.update(&input, &mut self.save.settings, self.themes.len());
+        if out.changed {
+            self.apply_audio_settings();
+            self.audio.play(cue::UI_CONFIRM, 0.6);
+            self.persist();
+        }
+        if out.close {
+            self.settings_ui = None;
         }
     }
 
@@ -229,356 +421,175 @@ impl App {
             self.start_demo();
             return;
         }
-        let n = GameMode::ALL.len();
-        if pressed_any(&[KeyCode::Down, KeyCode::S]) {
-            self.menu_sel = (self.menu_sel + 1) % n;
-            self.audio.play("move", 0.6);
+        let digit_keys = [
+            KeyCode::Key1,
+            KeyCode::Key2,
+            KeyCode::Key3,
+            KeyCode::Key4,
+            KeyCode::Key5,
+            KeyCode::Key6,
+            KeyCode::Key7,
+            KeyCode::Key8,
+            KeyCode::Key9,
+        ];
+        let input = MenuInput {
+            left: pressed_any(&[KeyCode::Left, KeyCode::A]),
+            right: pressed_any(&[KeyCode::Right, KeyCode::D]),
+            up: pressed_any(&[KeyCode::Up, KeyCode::W]),
+            down: pressed_any(&[KeyCode::Down, KeyCode::S]),
+            confirm: pressed_any(&[KeyCode::Enter, KeyCode::KpEnter, KeyCode::Space]),
+            settings: is_key_pressed(KeyCode::Tab),
+            digit: digit_keys.iter().position(|&k| is_key_pressed(k)),
+            mouse: self.stage.mouse(),
+            click: is_mouse_button_pressed(MouseButton::Left),
+        };
+        let counts = mode_counts(&self.registry);
+        let out = self.menu.update(&input, &counts);
+        if out.moved {
+            self.audio.play(cue::UI_MOVE, 0.6);
         }
-        if pressed_any(&[KeyCode::Up, KeyCode::W]) {
-            self.menu_sel = (self.menu_sel + n - 1) % n;
-            self.audio.play("move", 0.6);
-        }
-        for (i, k) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4]
-            .iter()
-            .enumerate()
-        {
-            if is_key_pressed(*k) {
-                self.start_game(GameMode::ALL[i]);
-                return;
+        match out.action {
+            Some(MenuAction::Play(sel)) => self.start_game(sel),
+            Some(MenuAction::OpenSettings) => {
+                self.audio.play(cue::UI_CONFIRM, 0.5);
+                self.settings_ui = Some(SettingsState::default());
             }
-        }
-        if pressed_any(&[KeyCode::Enter, KeyCode::KpEnter, KeyCode::Space]) {
-            self.start_game(GameMode::ALL[self.menu_sel]);
-            return;
-        }
-
-        let m = self.stage.mouse();
-        for i in 0..n {
-            if mode_card_rect(i).contains(m) {
-                if self.menu_sel != i {
-                    self.menu_sel = i;
-                }
-                if is_mouse_button_pressed(MouseButton::Left) {
-                    self.start_game(GameMode::ALL[i]);
-                    return;
-                }
-            }
-        }
-        if is_mouse_button_pressed(MouseButton::Left) {
-            self.click_settings(m);
-        }
-    }
-
-    fn click_settings(&mut self, m: Vec2) {
-        let mut changed = false;
-        for (i, row) in SETTING_ROWS.iter().enumerate() {
-            let (minus, plus, toggle) = setting_rects(i);
-            let s = &mut self.save.settings;
-            let step = |v: u32, d: i32, lo: u32, hi: u32| {
-                (v as i32 + d).clamp(lo as i32, hi as i32) as u32
-            };
-            match row {
-                SettingRow::Das | SettingRow::Arr | SettingRow::Volume => {
-                    let d = if minus.contains(m) {
-                        -1
-                    } else if plus.contains(m) {
-                        1
-                    } else {
-                        continue;
-                    };
-                    match row {
-                        SettingRow::Das => {
-                            s.das_ms = step(
-                                s.das_ms,
-                                d * 10,
-                                Settings::DAS_RANGE.0,
-                                Settings::DAS_RANGE.1,
-                            )
-                        }
-                        SettingRow::Arr => {
-                            s.arr_ms = step(
-                                s.arr_ms,
-                                d * 5,
-                                Settings::ARR_RANGE.0,
-                                Settings::ARR_RANGE.1,
-                            )
-                        }
-                        _ => s.volume = step(s.volume, d * 10, 0, 100),
-                    }
-                    changed = true;
-                }
-                _ if toggle.contains(m) => {
-                    match row {
-                        SettingRow::Sound => s.muted = !s.muted,
-                        SettingRow::Theme => s.theme = (s.theme + 1) % self.themes.len(),
-                        _ => s.colorblind = !s.colorblind,
-                    }
-                    changed = true;
-                }
-                _ => {}
-            }
-        }
-        if changed {
-            self.apply_audio_settings();
-            self.audio.play("select", 0.6);
-            self.persist();
+            None => {}
         }
     }
 
     fn update_playing(&mut self, dt: f32) {
-        let Some(sim) = self.sim.as_mut() else {
-            self.set_screen(Screen::Menu);
+        let Some(sel) = self.nav.active else {
+            self.nav.to_menu();
             return;
         };
-        sim.handling = self.save.settings.handling();
-        let input = match self.demo.as_mut() {
-            Some(bot) => bot.next_input(&sim.game),
-            None => held_buttons(),
+        if !self.demo && pressed_any(&[KeyCode::P, KeyCode::Escape]) {
+            self.nav.pause();
+            return;
+        }
+        let ctx = self.context(sel);
+        let input = poll_arcade_input();
+        let demo = self.demo;
+        let ev = {
+            let Some(game) = self.registry.get_mut(sel.game) else {
+                self.nav.to_menu();
+                return;
+            };
+            game.set_context(&ctx);
+            if demo {
+                game.demo_update(dt).unwrap_or_default()
+            } else {
+                game.update(dt, &input)
+            }
         };
-        let out = sim.update(input, dt);
-        self.handle_events(&out.events);
+        let end = self.apply_events(ev);
 
-        if self.demo.is_some() {
-            let ended = self.sim.as_ref().is_some_and(|s| !s.game.is_playing());
-            if ended {
+        if demo {
+            if end.is_some() {
                 self.start_demo();
-            } else if self.screen_time > 0.5 && self.any_user_input() {
-                self.demo = None;
-                self.sim = None;
-                self.idle = 0.0;
-                self.set_screen(Screen::Menu);
+            } else if self.nav.screen_time > 0.5 && self.any_user_input() {
+                self.leave_game();
             }
             return;
         }
+        if let Some(end) = end {
+            self.finish_session(sel, end);
+            self.nav.session_ended();
+        }
+    }
 
-        let sim = self.sim.as_ref().expect("sim present");
-        if !sim.game.is_playing() {
-            self.end_timer += dt;
-            if self.end_timer >= END_DELAY {
-                self.finish_run();
-            }
+    /// The last frame stays visible for a moment; effects keep animating.
+    fn update_ending(&mut self, dt: f32) {
+        let Some(sel) = self.nav.active else {
+            self.nav.to_menu();
             return;
+        };
+        let ctx = self.context(sel);
+        let ev = match self.registry.get_mut(sel.game) {
+            Some(game) => {
+                game.set_context(&ctx);
+                game.update(dt, &ArcadeInput::EMPTY)
+            }
+            None => FrameEvents::default(),
+        };
+        self.apply_events(ev);
+    }
+
+    fn pause_modal_click(&self) -> Option<ModalAction> {
+        let sel = self.nav.active?;
+        let game = self.registry.get(sel.game)?;
+        ModalOverlay {
+            kind: ModalKind::Pause {
+                game_title: game.title(),
+                legend: game.controls_legend(),
+            },
+            accent: game.accent_color(),
+            age: self.nav.screen_time,
         }
-        if out.pause_pressed {
-            self.set_screen(Screen::Paused);
-        }
+        .click(self.stage.mouse())
     }
 
     fn update_paused(&mut self) {
-        if pressed_any(&[KeyCode::P, KeyCode::Escape, KeyCode::Enter]) {
-            if let Some(sim) = self.sim.as_mut() {
-                sim.latch_input(held_buttons());
+        let clicked = if is_mouse_button_pressed(MouseButton::Left) {
+            self.pause_modal_click()
+        } else {
+            None
+        };
+        if pressed_any(&[KeyCode::P, KeyCode::Escape, KeyCode::Enter])
+            || clicked == Some(ModalAction::Resume)
+        {
+            let held = poll_arcade_input();
+            if let Some(game) = self.nav.active.and_then(|s| self.registry.get_mut(s.game)) {
+                game.on_resume(&held);
             }
-            self.set_screen(Screen::Playing);
-        } else if is_key_pressed(KeyCode::R) {
-            self.start_game(self.mode);
-        } else if is_key_pressed(KeyCode::Q) {
-            self.sim = None;
-            self.set_screen(Screen::Menu);
+            self.nav.resume();
+        } else if is_key_pressed(KeyCode::R) || clicked == Some(ModalAction::Restart) {
+            if let Some(sel) = self.nav.active {
+                self.start_game(sel);
+            }
+        } else if is_key_pressed(KeyCode::Q) || clicked == Some(ModalAction::MainMenu) {
+            self.leave_game();
         }
+    }
+
+    fn results_modal_click(&self) -> Option<ModalAction> {
+        let (sel, r) = (self.nav.active?, self.result.as_ref()?);
+        let game = self.registry.get(sel.game)?;
+        let rows = r.end.summary.clone();
+        ModalOverlay {
+            kind: ModalKind::Results {
+                title: r.end.title,
+                won: r.end.won,
+                headline: (r.end.headline.0, &r.end.headline.1),
+                rows: &rows,
+                new_record: r.new_record,
+                best: r.best.as_deref(),
+            },
+            accent: game.accent_color(),
+            age: self.nav.screen_time,
+        }
+        .click(self.stage.mouse())
     }
 
     fn update_results(&mut self) {
-        if self.screen_time < 0.35 {
+        if self.nav.screen_time < 0.35 {
             return; // avoid instantly skipping with a held key
         }
-        if pressed_any(&[KeyCode::R, KeyCode::Enter, KeyCode::KpEnter]) {
-            self.start_game(self.mode);
-        } else if pressed_any(&[KeyCode::Escape, KeyCode::Q]) {
-            self.sim = None;
-            self.set_screen(Screen::Menu);
-        }
-    }
-
-    fn finish_run(&mut self) {
-        let Some(sim) = self.sim.as_ref() else {
-            return;
+        let clicked = if is_mouse_button_pressed(MouseButton::Left) {
+            self.results_modal_click()
+        } else {
+            None
         };
-        let g = &sim.game;
-        let completed = g.status == GameStatus::Finished;
-        let record = RunRecord {
-            mode: g.mode,
-            score: g.score.score,
-            time_ms: (g.elapsed * 1000.0) as u64,
-            completed,
-            date_iso: self.today.iso(),
-        };
-        let new_record = self.save.record(&record);
-        self.persist();
-        let title = match g.status {
-            GameStatus::Finished => "CLEAR!",
-            GameStatus::GameOver(TopOut::BlockOut) => "BLOCK OUT",
-            GameStatus::GameOver(TopOut::LockOut) => "LOCK OUT",
-            GameStatus::Playing => "PAUSED",
-        };
-        self.result = Some(ResultInfo {
-            title,
-            score: g.score.score,
-            lines: g.lines,
-            seconds: g.elapsed,
-            new_record,
-        });
-        if new_record {
-            self.audio.play("levelup", 0.8);
-        }
-        self.set_screen(Screen::Results);
-    }
-
-    /// Turns game events into juice and sound.
-    fn handle_events(&mut self, events: &[GameEvent]) {
-        let theme = self.theme().clone();
-        let Some(sim) = self.sim.as_ref() else {
-            return;
-        };
-        let tier = sim.game.tier().index();
-        let callout_pos = vec2(BOARD_X + BOARD_W * 0.5, BOARD_Y + 210.0);
-
-        for e in events {
-            match e {
-                GameEvent::Moved => self.audio.play("move", 0.35),
-                GameEvent::Rotated { kick_index } => {
-                    self.audio
-                        .play("rotate", if *kick_index > 0 { 0.55 } else { 0.4 });
-                }
-                GameEvent::Held(_) => self.audio.play("hold", 0.55),
-                GameEvent::HardDropped { from, to, distance } => {
-                    let col = theme.piece(from.kind);
-                    for ((fx_, fy), (_, ty)) in from.minos().iter().zip(to.minos().iter()) {
-                        let top = hud::cell_pos(*fx_, (*fy).max(19), 0.0).y;
-                        let bottom = hud::cell_pos(*fx_, *ty, 0.0).y;
-                        if bottom > top {
-                            self.fx.trail(
-                                BOARD_X + *fx_ as f32 * CELL + 2.0,
-                                top,
-                                bottom,
-                                CELL - 4.0,
-                                col,
-                            );
-                        }
-                    }
-                    self.fx.spring.impact(*distance);
-                    self.audio.play("harddrop", 0.75);
-                }
-                GameEvent::Locked { piece, .. } => {
-                    for (x, y) in piece.minos() {
-                        let p = hud::cell_pos(x, y, 0.0);
-                        self.fx.flash(
-                            Rect::new(p.x, p.y, CELL, CELL),
-                            LOCK_FLASH_SECS,
-                            Color::new(1.0, 1.0, 1.0, 0.75),
-                        );
-                    }
-                    self.melody = (self.melody + 1 + piece.kind.index() % 3) % 5;
-                    self.audio.note(tier, self.melody, 0.22);
-                }
-                GameEvent::LinesCleared {
-                    rows,
-                    result,
-                    label,
-                } => {
-                    for &row in rows {
-                        let y = row as i32;
-                        let p = hud::cell_pos(0, y, 0.0);
-                        self.fx.flash(
-                            Rect::new(p.x, p.y, BOARD_W, CELL),
-                            ROW_FLASH_SECS,
-                            Color::new(1.0, 1.0, 1.0, 0.85),
-                        );
-                        for x in 0..10 {
-                            let c = theme.pieces[(x as usize + row) % 7];
-                            self.fx.burst(
-                                hud::cell_center(x, y),
-                                c,
-                                5,
-                                260.0 + 40.0 * result.lines as f32,
-                            );
-                        }
-                    }
-                    let big = result.lines >= 4 || result.tspin;
-                    if let Some(l) = label {
-                        let col = if big { theme.accent2 } else { theme.text };
-                        let size = if big { Size::X3 } else { Size::X2 };
-                        self.fx.callout(*l, callout_pos, col, size);
-                    }
-                    if result.back_to_back {
-                        self.fx
-                            .callout("BACK-TO-BACK", callout_pos, theme.accent, Size::X1);
-                    }
-                    if result.combo > 0 {
-                        self.fx.callout(
-                            format!("COMBO x{}", result.combo),
-                            callout_pos,
-                            theme.accent2,
-                            Size::X1,
-                        );
-                    }
-                    let idx = (2 + result.lines as usize + result.combo.max(0) as usize).min(7);
-                    self.audio.note(tier, idx, 0.8);
-                    if big {
-                        self.audio.play("sparkle", 0.7);
-                        self.fx.screen_flash = 0.6;
-                        self.fx.screen_flash_color = theme.accent2;
-                    }
-                }
-                GameEvent::TSpinNoLines { .. } => {
-                    self.fx
-                        .callout("T-SPIN!", callout_pos, theme.accent, Size::X2);
-                    self.audio.play("sparkle", 0.5);
-                }
-                GameEvent::LevelUp(l) => {
-                    self.fx.callout(
-                        format!("LEVEL {l}"),
-                        callout_pos + vec2(0.0, 120.0),
-                        theme.text,
-                        Size::X2,
-                    );
-                    self.audio.play("levelup", 0.6);
-                }
-                GameEvent::TierChanged { from, to } => {
-                    if to > from {
-                        let c = theme.tiers[to.index()];
-                        if *to == FlowTier::Overdrive {
-                            self.fx.callout(
-                                "OVERDRIVE 2.0x",
-                                callout_pos - vec2(0.0, 70.0),
-                                c,
-                                Size::X3,
-                            );
-                            self.fx.screen_flash = 1.0;
-                            self.fx.screen_flash_color = c;
-                            self.audio.play("overdrive", 0.8);
-                        } else {
-                            let txt = format!("{} {}x", to.name(), to.multiplier());
-                            self.fx
-                                .callout(txt, callout_pos - vec2(0.0, 70.0), c, Size::X2);
-                        }
-                    }
-                }
-                GameEvent::TopOut(_) => self.audio.play("gameover", 0.8),
-                GameEvent::ZenReset { cleared } => {
-                    for &(x, y, kind) in cleared {
-                        if y >= 19 {
-                            // Bottom rows dissolve first: a soft upward wave.
-                            let delay = (39 - y) as f32 * 0.035;
-                            self.fx.dissolve(
-                                hud::cell_pos(x, y, 0.0),
-                                theme.piece(kind),
-                                kind,
-                                delay,
-                            );
-                        }
-                    }
-                    self.fx
-                        .callout("ZEN RESET", callout_pos, theme.accent2, Size::X2);
-                    self.audio.play("zen", 0.7);
-                }
-                GameEvent::Finished => {
-                    self.fx
-                        .callout("COMPLETE!", callout_pos, theme.accent2, Size::X3);
-                    self.audio.play("finish", 0.8);
-                }
-                GameEvent::Spawned(_) | GameEvent::SoftDropped(_) => {}
+        if pressed_any(&[KeyCode::R, KeyCode::Enter, KeyCode::KpEnter])
+            || clicked == Some(ModalAction::Restart)
+        {
+            if let Some(sel) = self.nav.active {
+                self.start_game(sel);
             }
+        } else if pressed_any(&[KeyCode::Escape, KeyCode::Q])
+            || clicked == Some(ModalAction::MainMenu)
+        {
+            self.leave_game();
         }
     }
 
@@ -586,461 +597,134 @@ impl App {
 
     pub fn draw(&self) {
         clear_background(BLACK);
-        self.stage.apply();
+        let shake = vec2(
+            (self.time * 91.0).sin() * self.shake,
+            (self.time * 77.0).cos() * self.shake,
+        );
+        self.stage.apply_with_offset(shake);
         let theme = self.theme();
-        let intensity = match (&self.sim, self.screen) {
-            (Some(s), Screen::Playing | Screen::Paused | Screen::Results) => {
-                s.game.flow.flow / 100.0
-            }
-            _ => 0.15,
+        let intensity = if self.nav.in_game() {
+            self.flow / 100.0
+        } else {
+            0.15
         };
         self.bg.draw(theme, intensity);
+        let pulse = self.bg.pulse();
 
-        match self.screen {
-            Screen::Menu => self.draw_menu(theme),
-            Screen::Playing | Screen::Paused | Screen::Results => {
-                if let Some(sim) = &self.sim {
-                    let today = format!("#{}", self.today.iso());
-                    let ctx = HudCtx {
-                        stage: &self.stage,
-                        theme,
-                        colorblind: self.settings().colorblind,
-                        pulse: self.bg.pulse(),
-                        best: self.save.best_for(sim.game.mode, &self.today.iso()),
-                        daily_label: &today,
-                    };
-                    hud::draw(&sim.game, &ctx, &self.fx);
-                }
-                self.fx.draw_overlay(&self.stage);
-                if self.demo.is_some() {
-                    let a = 0.55 + 0.45 * self.bg.pulse();
-                    draw_rectangle(BOARD_X, 2.0, BOARD_W, 26.0, Color::new(0.0, 0.0, 0.0, 0.55));
-                    text::label(
-                        &self.stage,
-                        "DEMO  -  PRESS ANY KEY",
-                        BOARD_X + BOARD_W * 0.5,
-                        7.0,
-                        Size::X1,
-                        with_alpha(theme.accent2, a),
-                        Align::Center,
-                    );
-                }
-                if self.screen == Screen::Paused {
-                    self.draw_pause(theme);
-                }
-                if self.screen == Screen::Results {
-                    self.draw_results(theme);
-                }
+        match self.nav.screen {
+            Screen::Menu => menu::draw(&MenuView {
+                stage: &self.stage,
+                theme,
+                registry: &self.registry,
+                state: &self.menu,
+                save: &self.save,
+                today: &self.today,
+                bg: &self.bg,
+                time: self.time,
+            }),
+            Screen::Playing | Screen::Paused | Screen::Ending | Screen::Results => {
+                self.draw_game(theme, pulse)
             }
         }
-        set_default_camera();
-    }
-
-    fn draw_menu(&self, theme: &Theme) {
-        let st = &self.stage;
-        let t = self.bg.time();
-        // Title with animated mini blocks
-        let kinds = crate::core::PieceKind::ALL;
-        for (i, k) in kinds.iter().enumerate() {
-            let x = 640.0 - 3.5 * 30.0 + i as f32 * 30.0;
-            let y = 40.0 + (t * 2.2 + i as f32 * 0.7).sin() * 4.0;
-            blocks::mino(
-                x,
-                y,
-                24.0,
-                theme.piece(*k),
-                Some(*k),
-                self.settings().colorblind,
-            );
-        }
-        text::label(
-            st,
-            "VIBECODED BLOCKS",
-            640.0,
-            84.0,
-            Size::X3,
-            theme.text,
-            Align::Center,
-        );
-        text::label(
-            st,
-            "a flow-state block puzzle",
-            640.0,
-            136.0,
-            Size::X1,
-            with_alpha(theme.accent2, 0.9),
-            Align::Center,
-        );
-
-        // Mode cards
-        let m = st.mouse();
-        for (i, mode) in GameMode::ALL.iter().enumerate() {
-            let r = mode_card_rect(i);
-            let sel = i == self.menu_sel;
-            let accent = if sel {
-                theme.accent2
-            } else {
-                theme.panel_border
-            };
-            hud::panel(r.x, r.y, r.w, r.h, theme, accent);
-            if sel {
-                let a = 0.35 + 0.35 * self.bg.pulse();
-                draw_rectangle_lines(
-                    r.x - 3.0,
-                    r.y - 3.0,
-                    r.w + 6.0,
-                    r.h + 6.0,
-                    2.0,
-                    with_alpha(theme.accent2, a),
-                );
-            } else if r.contains(m) {
-                draw_rectangle_lines(r.x, r.y, r.w, r.h, 1.5, with_alpha(theme.text_dim, 0.6));
-            }
-            digits::draw(
-                &(i + 1).to_string(),
-                r.x + 18.0,
-                r.y + 22.0,
-                38.0,
-                if sel { theme.accent2 } else { theme.text_dim },
-            );
-            text::label(
-                st,
-                mode.title(),
-                r.x + 62.0,
-                r.y + 14.0,
-                Size::X2,
-                theme.text,
-                Align::Left,
-            );
-            if *mode == GameMode::DailyVibe {
-                let d = format!("#{}", self.today.iso());
-                digits::draw_right(&d, r.x + r.w - 16.0, r.y + 60.0, 14.0, theme.accent2);
-            }
-            text::label(
-                st,
-                mode.tagline(),
-                r.x + 62.0,
-                r.y + 52.0,
-                Size::X1,
-                theme.text_dim,
-                Align::Left,
-            );
-            let best = self.save.best_for(*mode, &self.today.iso());
-            if let Some(b) = best {
-                let s = if *mode == GameMode::Sprint {
-                    digits::format_time(b as f64 / 1000.0)
-                } else {
-                    b.to_string()
-                };
-                text::label(
-                    st,
-                    "BEST",
-                    r.x + r.w - 16.0,
-                    r.y + 14.0,
-                    Size::X1,
-                    theme.text_dim,
-                    Align::Right,
-                );
-                digits::draw_right(&s, r.x + r.w - 16.0, r.y + 36.0, 18.0, theme.accent);
-            }
-        }
-        text::label(
-            st,
-            "ENTER / CLICK to play   -   UP/DOWN or 1-4 to choose",
-            400.0,
-            584.0,
-            Size::X1,
-            theme.text_dim,
-            Align::Center,
-        );
-
-        // Settings panel
-        let (px, py, pw, ph) = (720.0, 168.0, 400.0, 392.0);
-        hud::panel(px, py, pw, ph, theme, theme.accent);
-        text::label(
-            st,
-            "SETTINGS",
-            px + 20.0,
-            py + 16.0,
-            Size::X2,
-            theme.text,
-            Align::Left,
-        );
-        let s = self.settings();
-        for (i, row) in SETTING_ROWS.iter().enumerate() {
-            let (minus, plus, toggle) = setting_rects(i);
-            let y = minus.y;
-            let name = match row {
-                SettingRow::Das => "DAS",
-                SettingRow::Arr => "ARR",
-                SettingRow::Volume => "VOLUME",
-                SettingRow::Sound => "SOUND",
-                SettingRow::Theme => "THEME",
-                SettingRow::Colorblind => "COLORBLIND",
-            };
-            text::label(
-                st,
-                name,
-                px + 20.0,
-                y + 8.0,
-                Size::X1,
-                theme.text_dim,
-                Align::Left,
-            );
-            match row {
-                SettingRow::Das | SettingRow::Arr | SettingRow::Volume => {
-                    for (r, sym) in [(minus, "-"), (plus, "+")] {
-                        button(st, theme, r, sym, r.contains(m));
-                    }
-                    let v = match row {
-                        SettingRow::Das => format!("{}", s.das_ms),
-                        SettingRow::Arr => format!("{}", s.arr_ms),
-                        _ => format!("{}%", s.volume),
-                    };
-                    let cx = (minus.x + minus.w + plus.x) * 0.5;
-                    digits::draw_centered(&v, cx, y + 6.0, 20.0, theme.text);
-                    if *row != SettingRow::Volume {
-                        text::label(
-                            st,
-                            "ms",
-                            plus.x + plus.w + 8.0,
-                            y + 8.0,
-                            Size::X1,
-                            theme.text_dim,
-                            Align::Left,
-                        );
-                    }
-                }
-                _ => {
-                    let label = match row {
-                        SettingRow::Sound => self.audio.status().to_string(),
-                        SettingRow::Theme => theme.name.to_string(),
-                        _ => (if s.colorblind { "ON" } else { "OFF" }).to_string(),
-                    };
-                    button(st, theme, toggle, &label, toggle.contains(m));
-                }
-            }
-        }
-        // Controls
-        let (cx, cy) = (720.0, 576.0);
-        hud::panel(cx, cy, 400.0, 112.0, theme, theme.panel_border);
-        let lines = [
-            "LEFT/RIGHT move    DOWN soft    SPACE hard",
-            "UP/X rotate   Y/Z/CTRL ccw   A 180",
-            "C/SHIFT hold   P/ESC pause",
-            "T theme   B colorblind   M mute",
-        ];
-        for (i, l) in lines.iter().enumerate() {
-            text::label(
-                st,
-                l,
-                cx + 16.0,
-                cy + 12.0 + i as f32 * 23.0,
-                Size::X1,
-                theme.text_dim,
-                Align::Left,
-            );
+        if let Some(state) = &self.settings_ui {
+            settings::draw(&self.stage, theme, state, self.settings(), pulse);
         }
     }
 
-    fn draw_pause(&self, theme: &Theme) {
-        let st = &self.stage;
-        draw_rectangle(
-            0.0,
-            0.0,
-            VIRTUAL_W,
-            VIRTUAL_H,
-            Color::new(0.02, 0.03, 0.05, 0.72),
-        );
-        text::label(
-            st,
-            "PAUSED",
-            640.0,
-            270.0,
-            Size::X3,
-            theme.text,
-            Align::Center,
-        );
-        text::label(
-            st,
-            "P / ESC  resume",
-            640.0,
-            350.0,
-            Size::X1,
-            theme.text_dim,
-            Align::Center,
-        );
-        text::label(
-            st,
-            "R  restart",
-            640.0,
-            376.0,
-            Size::X1,
-            theme.text_dim,
-            Align::Center,
-        );
-        text::label(
-            st,
-            "Q  quit to menu",
-            640.0,
-            402.0,
-            Size::X1,
-            theme.text_dim,
-            Align::Center,
-        );
-    }
-
-    fn draw_results(&self, theme: &Theme) {
-        let Some(r) = &self.result else {
+    fn draw_game(&self, theme: &Theme, pulse: f32) {
+        let Some(sel) = self.nav.active else {
             return;
         };
-        let st = &self.stage;
-        let k = (self.screen_time / 0.3).min(1.0);
-        draw_rectangle(
-            0.0,
-            0.0,
-            VIRTUAL_W,
-            VIRTUAL_H,
-            Color::new(0.02, 0.03, 0.05, 0.7 * k),
-        );
-        let (w, h) = (440.0, 340.0);
-        let (x, y) = (640.0 - w * 0.5, 190.0 + (1.0 - k) * 30.0);
-        hud::panel(x, y, w, h, theme, theme.accent2);
-        text::label(
-            st,
-            r.title,
-            640.0,
-            y + 24.0,
-            Size::X3,
-            theme.text,
-            Align::Center,
-        );
-        text::label(
-            st,
-            self.mode.title(),
-            640.0,
-            y + 80.0,
-            Size::X1,
-            theme.accent2,
-            Align::Center,
-        );
-        text::label(
-            st,
-            "SCORE",
-            640.0,
-            y + 110.0,
-            Size::X1,
-            theme.text_dim,
-            Align::Center,
-        );
-        digits::draw_centered(&r.score.to_string(), 640.0, y + 132.0, 40.0, theme.text);
-        text::label(
-            st,
-            "LINES",
-            540.0,
-            y + 192.0,
-            Size::X1,
-            theme.text_dim,
-            Align::Center,
-        );
-        digits::draw_centered(&r.lines.to_string(), 540.0, y + 214.0, 24.0, theme.text);
-        text::label(
-            st,
-            "TIME",
-            740.0,
-            y + 192.0,
-            Size::X1,
-            theme.text_dim,
-            Align::Center,
-        );
-        digits::draw_centered(
-            &digits::format_time(r.seconds),
-            740.0,
-            y + 214.0,
-            24.0,
-            theme.text,
-        );
-        if r.new_record {
-            let a = 0.6 + 0.4 * self.bg.pulse();
+        let Some(game) = self.registry.get(sel.game) else {
+            return;
+        };
+        game.draw(&self.stage, theme, self.settings().colorblind);
+        self.particles.draw();
+        self.callouts.draw(&self.stage);
+        if self.flash.1 > 0.0 {
+            draw_rectangle(
+                0.0,
+                0.0,
+                VIRTUAL_W,
+                VIRTUAL_H,
+                with_alpha(self.flash.0, self.flash.1 * 0.18),
+            );
+        }
+        if self.demo {
+            // Bottom centre: free in every title (HUDs live at the top/sides).
+            let a = 0.55 + 0.45 * pulse;
+            draw_rectangle(
+                VIRTUAL_W * 0.5 - 130.0,
+                VIRTUAL_H - 28.0,
+                260.0,
+                24.0,
+                Color::new(0.0, 0.0, 0.0, 0.55),
+            );
             text::label(
-                st,
-                "NEW RECORD!",
-                640.0,
-                y + 256.0,
-                Size::X2,
-                with_alpha(lighten(theme.accent2, 0.2), a),
+                &self.stage,
+                "DEMO  -  PRESS ANY KEY",
+                VIRTUAL_W * 0.5,
+                VIRTUAL_H - 24.0,
+                Size::X1,
+                with_alpha(theme.accent2, a),
                 Align::Center,
             );
         }
-        text::label(
-            st,
-            "R / ENTER  retry      ESC  menu",
-            640.0,
-            y + h - 30.0,
-            Size::X1,
-            theme.text_dim,
-            Align::Center,
-        );
+        let mouse = self.stage.mouse();
+        match self.nav.screen {
+            Screen::Paused => ModalOverlay {
+                kind: ModalKind::Pause {
+                    game_title: game.title(),
+                    legend: game.controls_legend(),
+                },
+                accent: game.accent_color(),
+                age: self.nav.screen_time,
+            }
+            .draw(&self.stage, theme, mouse, pulse),
+            Screen::Results => {
+                if let Some(r) = &self.result {
+                    ModalOverlay {
+                        kind: ModalKind::Results {
+                            title: r.end.title,
+                            won: r.end.won,
+                            headline: (r.end.headline.0, &r.end.headline.1),
+                            rows: &r.end.summary,
+                            new_record: r.new_record,
+                            best: r.best.as_deref(),
+                        },
+                        accent: game.accent_color(),
+                        age: self.nav.screen_time,
+                    }
+                    .draw(&self.stage, theme, mouse, pulse);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
-impl Default for App {
-    fn default() -> Self {
-        Self::new(false)
-    }
+fn mode_counts(registry: &GameRegistry) -> Vec<usize> {
+    registry.iter().map(|g| g.modes().len()).collect()
 }
 
-fn mode_card_rect(i: usize) -> Rect {
-    Rect::new(160.0, 168.0 + i as f32 * 98.0, 480.0, 84.0)
-}
+/// Default seconds after which `--screenshot` captures the frame.
+const SCREENSHOT_AFTER: f32 = 4.0;
 
-/// (minus, plus, toggle) rects of settings row `i`.
-fn setting_rects(i: usize) -> (Rect, Rect, Rect) {
-    let y = 226.0 + i as f32 * 54.0;
-    (
-        Rect::new(880.0, y, 32.0, 32.0),
-        Rect::new(1020.0, y, 32.0, 32.0),
-        Rect::new(880.0, y, 220.0, 32.0),
-    )
-}
-
-fn button(stage: &Stage, theme: &Theme, r: Rect, label: &str, hover: bool) {
-    let fill = if hover {
-        with_alpha(theme.accent, 0.45)
-    } else {
-        Color::new(0.0, 0.0, 0.0, 0.35)
-    };
-    draw_rectangle(r.x, r.y, r.w, r.h, fill);
-    draw_rectangle_lines(
-        r.x,
-        r.y,
-        r.w,
-        r.h,
-        1.5,
-        if hover {
-            theme.accent2
-        } else {
-            theme.panel_border
-        },
-    );
-    text::label(
-        stage,
-        label,
-        r.x + r.w * 0.5,
-        r.y + 8.0,
-        Size::X1,
-        theme.text,
-        Align::Center,
-    );
-}
-
-/// Main loop.
-pub async fn run(start_demo: bool) {
-    let mut app = App::new(start_demo);
+pub async fn run(cli: Cli) {
+    let mut app = App::new(&cli);
+    let mut elapsed = 0.0;
     loop {
         let dt = get_frame_time();
         app.update(dt);
         app.draw();
+        elapsed += dt;
+        if let Some(path) = &cli.screenshot
+            && elapsed >= cli.wait.unwrap_or(SCREENSHOT_AFTER)
+        {
+            // Only the game's own framebuffer is captured, never the desktop.
+            get_screen_data().export_png(path);
+            std::process::exit(0);
+        }
         next_frame().await;
     }
 }

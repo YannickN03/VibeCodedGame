@@ -1,5 +1,7 @@
-//! Enforces the 4-layer architecture: the pure layers must never depend on
-//! the rendering framework, and unsafe code is forbidden crate-wide.
+//! Enforces the architecture: the pure layers must never depend on the
+//! rendering framework, shared code must not know individual games, the
+//! controller must not name concrete titles, and unsafe code is forbidden
+//! crate-wide.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -60,4 +62,88 @@ fn unsafe_code_is_forbidden() {
 fn release_binary_has_no_console_window() {
     let main = fs::read_to_string(src("main.rs")).expect("main.rs");
     assert!(main.contains(r#"#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]"#));
+}
+
+/// Non-comment lines of all Rust files below `sub`, with their location.
+fn code_lines(sub: &str) -> Vec<(String, usize, String)> {
+    let mut out = Vec::new();
+    for f in rust_files(&src(sub)) {
+        let code = fs::read_to_string(&f).expect("readable file");
+        for (i, line) in code.lines().enumerate() {
+            let t = line.trim_start();
+            if !t.starts_with("//") {
+                out.push((f.display().to_string(), i + 1, t.to_string()));
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn core_has_the_three_modules() {
+    for dir in ["shared", "blocks", "snake"] {
+        assert!(src("core").join(dir).is_dir(), "src/core/{dir} missing");
+    }
+}
+
+#[test]
+fn games_do_not_depend_on_each_other_and_shared_knows_no_game() {
+    for (file, line, text) in code_lines("core/shared") {
+        for banned in [
+            "core::blocks",
+            "core::snake",
+            "super::blocks",
+            "super::snake",
+        ] {
+            assert!(
+                !text.contains(banned),
+                "{file}:{line} shared code uses {banned}"
+            );
+        }
+    }
+    for (file, line, text) in code_lines("core/snake") {
+        for banned in ["core::blocks", "core::game", "core::board", "core::piece"] {
+            assert!(
+                !text.contains(banned),
+                "{file}:{line} snake core uses {banned}"
+            );
+        }
+    }
+    for (file, line, text) in code_lines("core/blocks") {
+        assert!(
+            !text.contains("core::snake"),
+            "{file}:{line} blocks core uses snake"
+        );
+    }
+}
+
+#[test]
+fn controller_menu_and_widgets_do_not_name_concrete_titles() {
+    let concrete = [
+        "BlocksTitle",
+        "SnakeTitle",
+        "titles::blocks",
+        "titles::snake",
+    ];
+    // The controller may only call `titles::default_registry`.
+    for dir in ["presentation", "arcade", "infrastructure"] {
+        for (file, line, text) in code_lines(dir) {
+            if file.ends_with("registry.rs") && text.contains("Dummy") {
+                continue; // test doubles inside the registry unit tests
+            }
+            for name in concrete {
+                assert!(
+                    !text.contains(name),
+                    "{file}:{line} names the concrete title '{name}'; use dyn ArcadeTitle"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn only_the_titles_module_registers_concrete_games() {
+    let code = fs::read_to_string(src("titles/mod.rs")).expect("titles/mod.rs");
+    assert!(code.contains("BlocksTitle") && code.contains("SnakeTitle"));
+    assert!(code.contains("register("));
 }

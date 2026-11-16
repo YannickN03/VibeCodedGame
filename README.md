@@ -1,20 +1,56 @@
-# VibeCoded Blocks
+# VibeCoded Arcade
 
-Ein reaktionsschnelles, Guideline-treues Block-Stacking-Puzzle in **Rust** mit viel „Game Feel“: deterministische Kollisionsphysik, SRS-Rotation mit Wall-Kicks, ein Flow-System, das sauberes Spiel mit Punkte-Multiplikatoren belohnt, ein GLSL-Hintergrund im Takt der Musik und ein komplett prozedural erzeugter Soundtrack in C-Moll-Pentatonik. Ausgeliefert als eine einzige `VibeCodedGame.exe`, ohne externe Assets.
+Eine modulare **Arcade-Plattform in Rust** (`macroquad`) mit zwei Spielen, die sich Hauptmenü, Sound, Musik, Effekte, Flow-Engine und Speichersystem teilen:
+
+- **VibeCoded Blocks**: reaktionsschnelles, Guideline-treues Block-Stacking-Puzzle mit SRS-Wall-Kicks, Flow-System und viel „Game Feel“.
+- **VibeCoded Snake**: Snake mit 2-Slot-Turn-Buffer, Portal-Wrap, Daily-Hindernissen, Pulse-Äpfeln und Flow-Multiplikatoren.
+
+Alles ist deterministisch (eigener `SplitMix64`, keine `rand`-Crate), der Hintergrund ein GLSL-Shader im Takt der Musik, der Soundtrack komplett prozedural. Ausgeliefert als eine einzige `VibeCodedGame.exe` ohne externe Assets.
+
+**Weitere Spiele lassen sich ohne Umbau an Menü, Save-System oder Game-Loop andocken.** Die Anleitung steht in [ARCHITECTURE.md](ARCHITECTURE.md), Kapitel „Neues Spiel hinzufügen“.
 
 ---
 
 ## Schnellstart
 
 ```powershell
-cargo run --release                 # spielen
-cargo run --release -- --demo       # Attract-Mode: der Bot spielt
-cargo run -- --smoke-test           # headless Selbsttest (kein Fenster), Exit-Code 0
+cargo run --release                          # Arcade-Hauptmenü
+cargo run --release -- --demo                # Attract-Mode: ein Bot spielt
+cargo run --release -- --game snake          # Menü überspringen, direkt Snake starten
+cargo run -- --smoke-test                    # headless Selbsttest aller Spiele (kein Fenster), Exit-Code 0
 ```
+
+| Schalter | Wirkung |
+|---|---|
+| `--smoke-test` | Spielt jeden Modus **jedes registrierten Spiels** 300 Ticks mit dem Bot, prüft die Invarianten, fährt Pause, Ende, Ergebnis und Rückkehr ins Hauptmenü ab und validiert Audio und Save. Exit-Code `0` = alles in Ordnung. |
+| `--demo` | Startet direkt den Attract-Mode (ein Bot spielt). |
+| `--game <id>` `--mode <id>` | Startet direkt ein Spiel (`blocks`, `snake`) in einem Modus. |
+| `--screenshot <datei.png>` | Speichert nach ein paar Sekunden den Inhalt des **Spielfensters** und beendet sich (mit `--wait <s>`, `--show pause`, `settings` oder `colorblind`). Gedacht für Doku und visuelle Prüfung. |
 
 Voraussetzung: Rust 1.97.0 (Edition 2024; über `rust-toolchain.toml` festgelegt, rustup installiert es automatisch), Windows 10/11. Läuft auch unter Linux/macOS, Ziel-Plattform ist aber Windows.
 
-## Steuerung
+## Das Arcade-Hauptmenü
+
+Das Menü ist **datengetrieben**: Es zeigt automatisch eine Karte pro Spiel der `GameRegistry`. Bei 1 bis 3 Spielen stehen die Karten nebeneinander, ab 4 Spielen als 2×2-Raster mit Seiten-Pfeilen.
+
+Jede Karte zeigt Titel, Tagline, eine **lebendige Mini-Animation** des Spiels (`draw_preview`), die Moduswahl, deinen Highscore des gewählten Modus und den Start-Button. Die Leiste oben zeigt das Tages-Datum (`DAILY #YYYY-MM-DD`) und den **Arcade-Score**: die Summe aller gespeicherten Score-Highscores. Zeit-Modi wie der Sprint zählen nicht mit.
+
+| Eingabe | Wirkung |
+|---|---|
+| `←` `→` / `A` `D` | Spiel wählen |
+| `↑` `↓` / `W` `S` | Modus des gewählten Spiels wählen |
+| `Enter` / `Space` / Klick auf **PLAY** | Starten |
+| `1`–`9` | Spiel Nr. n direkt starten |
+| `Tab` / Klick auf **SETTINGS** | Einstellungen: DAS/ARR (Blocks), Sprint-Boost (Snake), Lautstärke, Sound, Theme, Farbenblind |
+| `T` / `B` / `M` | Theme / Farbenblind-Modus / Mute (überall) |
+
+Nach 25 s ohne Eingabe startet der Attract-Mode. In jedem Spiel pausiert `P`/`Esc` (das Pause-Overlay zeigt die Tastenbelegung des Spiels), `R` startet neu und `Q` führt zurück ins Hauptmenü.
+
+---
+
+## VibeCoded Blocks
+
+### Steuerung
 
 | Aktion | Tasten | Auslösung |
 |---|---|---|
@@ -26,11 +62,8 @@ Voraussetzung: Rust 1.97.0 (Edition 2024; über `rust-toolchain.toml` festgelegt
 | Drehen 180° | `A` | einmal pro Tastendruck |
 | Hold | `C` `Shift` | einmal pro Stein |
 | Pause | `P` `Esc` | |
-| Theme / Farbenblind / Mute | `T` / `B` / `M` | überall |
 
-Im Menü: `↑`/`↓` oder `1`–`4` wählen, `Enter`/Klick startet. Das Settings-Panel (DAS, ARR, Lautstärke, Sound, Theme, Farbenblind-Modus) ist per Maus bedienbar und wird sofort gespeichert. Nach 25 s ohne Eingabe startet eine Demo.
-
-## Spielmodi
+### Spielmodi
 
 | Modus | Ziel |
 |---|---|
@@ -39,7 +72,7 @@ Im Menü: `↑`/`↓` oder `1`–`4` wählen, `Enter`/Klick startet. Das Setting
 | **Daily Vibe** | 200 Lines. Seed = heutiges UTC-Datum `YYYYMMDD` → alle spielen dieselbe Steinfolge. Highscore pro Datum. |
 | **Zen** | Kein Game Over: bei Top-Out löst sich das Feld in einer sanften Welle auf, das Spiel läuft weiter. |
 
-## Regeln (Kurzfassung)
+### Regeln (Kurzfassung)
 
 - **Matrix** 10 × 40, Zeilen 0–19 sind die unsichtbare Pufferzone, `(0,0)` oben links, `+y` nach unten. Spawn zentriert in Zeile 18–19, danach sofort eine Zeile tiefer, wenn frei.
 - **Kollision:** eine zentrale, reine Funktion `is_valid_position` (Wände, Boden, Puffer-Decke, belegte Zellen). Der Ghost ist dieselbe Funktion in einer Schleife.
@@ -49,7 +82,41 @@ Im Menü: `↑`/`↓` oder `1`–`4` wählen, `Enter`/Klick startet. Das Setting
 - **Scoring:** Single/Double/Triple/Quad 100/300/500/800, T-Spin 0–3 Lines 400/800/1200/1600, alles × Level × Flow-Multiplikator; Back-to-Back ×1,5; Combo +50 × Combo × Level; Soft Drop +1, Hard Drop +2 pro Zelle.
 - **Top-Out:** Block Out (Spawn kollidiert) und Lock Out (Stein rastet komplett in der Pufferzone ein).
 
-### Flow-Engine
+---
+
+## VibeCoded Snake
+
+`32×18`-Raster, Start mit Länge 4 bei `(16, 9)` Richtung rechts. Die Schlange läuft in festen Schritten (7,5 bis 18 Schritte/s, logarithmisch nach gegessenen Äpfeln), wird aber **zwischen den Schritten weich interpoliert**. Sie hat verjüngte Segmente, ein Rückenmuster im Farbenblind-Modus (`B`) und **Augen, die dem nächsten Apfel folgen**.
+
+### Steuerung
+
+| Aktion | Tasten |
+|---|---|
+| Lenken | `←` `↑` `↓` `→` oder `W` `A` `S` `D` |
+| Sprint-Boost | `Space` / `Shift` gehalten (in den Settings abschaltbar), 1,6× Tempo |
+| Pause | `P` / `Esc` |
+
+**Turn-Buffer:** Bis zu 2 Richtungswechsel werden vorgemerkt und einer pro Schritt ausgeführt. Jede Eingabe wird gegen die **zuletzt vorgemerkte** Richtung geprüft, nicht gegen die aktuelle. So lässt sich ein schneller Doppel-Input (`↑` dann `←` bei Fahrt nach rechts) sauber als U-Turn spielen, und ein 180°-Wechsel in den eigenen Hals ist unmöglich.
+
+### Modi
+
+| Modus | Regeln |
+|---|---|
+| **Classic** | Wände töten. Das Tempo steigt mit jedem Apfel von 7,5 auf 18 Schritte/s. |
+| **Portal Wrap** | Wände sind Portale (Modulo-Umbruch, ohne Streifen über das Feld). Nur der eigene Körper tötet. |
+| **Daily Vibe** | Punktsymmetrische Hindernisse aus dem `YYYYMMDD`-Seed: für alle am selben Tag identisch, ohne Sackgassen und immer zusammenhängend (per Flood-Fill geprüft, sonst nächster abgeleiteter Seed). Highscore pro Datum. |
+| **Zen** | Unsterblich: Wände wrappen, ein Biss in den eigenen Körper schneidet nur den Schwanz ab. |
+
+### Regeln
+
+- **Kollisionsreihenfolge pro Schritt:** 1. Wand (Wrap per Modulo oder `WallCollision`), 2. Hindernis (`ObstacleCollision`), 3. Futter, 4. Selbstkollision, 5. Segment-Update (`push_front`, `pop_back` falls nicht gewachsen).
+- **Tail-Vacating:** Wächst die Schlange in diesem Schritt nicht, verlässt die Schwanzspitze ihr Feld gleichzeitig, der Kopf darf also hinein (geprüft wird nur gegen `segments[0..len-1]`). Wächst sie, auch durch noch ausstehendes Wachstum eines Pulse-Apfels, zählen alle Segmente.
+- **Äpfel:** Freie Zellen werden gesammelt und per `SplitMix64` gewählt. Gibt es keine mehr, gewinnt man (`Victory`). Standard-Apfel `+100 × Flow`, `+1` Länge. Nach jedem 5. Apfel erscheint zusätzlich ein **Pulse-Apfel** für 7,0 s (Countdown-Ring): `+250 × Flow`, `+2` Länge, `+25` Flow.
+- **Flow:** dieselbe Flow-Engine wie in Blocks (siehe unten). Äpfel füllen sie, Leerlauf leert sie. Sie ändert nur den Score-Multiplikator und das Tempo des Hintergrund-Pulses, nie die Spielgeschwindigkeit.
+
+---
+
+## Flow-Engine (gemeinsam)
 
 | Stufe | Flow | Score-Multiplikator | Shader-Takt |
 |---|---|---|---|
@@ -58,53 +125,55 @@ Im Menü: `↑`/`↓` oder `1`–`4` wählen, `Enter`/Klick startet. Das Setting
 | Sync | 60–90 | 1.5× | 124 BPM |
 | Overdrive | 90–100 | 2.0× | 132 BPM |
 
-Aufbau: Lock < 1,2 s nach dem Spawn +5, Single/Double/Triple/Quad +10/16/22/30, T-Spin +25, Combo +6 × Combo. Bei 100 greift ein 4-s-Overdrive-Shield. Nach 1,5 s ohne Lock (und ohne Shield) fällt der Flow um 3,5/s. **Flow beeinflusst nie die Gravity.** Das prüft ein eigener Test.
+Blocks: Lock < 1,2 s nach dem Spawn +5, Single/Double/Triple/Quad +10/16/22/30, T-Spin +25, Combo +6 × Combo. Snake: Apfel +8 (+4, wenn zwei Äpfel innerhalb von 2 s), Pulse-Apfel +25. Bei 100 greift ein 4-s-Overdrive-Shield. Nach 1,5 s ohne Ereignis (und ohne Shield) fällt der Flow um 3,5/s. **Flow beeinflusst nie die Gravity bzw. das Schlangentempo.** Das prüft ein eigener Test.
 
-## Architektur
+## Hintergrundmusik (gemeinsam)
 
-Strikte 4-Schichten-Trennung. `#![forbid(unsafe_code)]` gilt für die ganze Crate, und `tests/architecture.rs` prüft automatisch, dass `core` und `engine` kein `macroquad` verwenden.
+Die Musik wird beim Start in einem eigenen Thread prozedural erzeugt (keine Asset-Dateien) und als nahtloser 8-Takt-Loop abgespielt. Das Menü hat einen ruhigen Track (84 BPM, Pad, Glocken, kein Schlagzeug). Im Spiel gibt es fünf Stufen, die beim Wechsel ineinander überblenden. Jedes Spiel meldet seine Stufe selbst (`FrameEvents::music_stage`): Blocks nach Level bzw. Sprint-Fortschritt, Snake nach der aktuellen Grundgeschwindigkeit.
+
+| Stufe | Blocks: Marathon / Daily | Blocks: Sprint | Snake (Schritte/s) | Tempo | neu dazu |
+|---|---|---|---|---|---|
+| 1 | Level 1–2 | 0–9 Lines | 7,5–9,6 | 112 BPM | Pad, Bass, Kick auf 1 & 3, Hi-Hats |
+| 2 | Level 3–5 | 10–19 Lines | 9,6–11,7 | 122 BPM | Four-on-the-floor, Snare, treibender Bass, Sidechain-Pumpen |
+| 3 | Level 6–9 | 20–29 Lines | 11,7–13,8 | 132 BPM | 16tel-Hats, 16tel-Arpeggio |
+| 4 | Level 10–14 | 30–34 Lines | 13,8–15,9 | 144 BPM | Lead-Melodie, Oktav-Bass, Open Hats |
+| 5 | ab Level 15 | ab 35 Lines | ab 15,9 | 158 BPM | Melodie gedoppelt, verzerrter Bass, Snare-Wirbel |
+
+Zen (Blocks) bleibt auf Stufe 1. In der Pause wird die Musik leiser, am Spielende blendet sie aus, damit der Jingle durchkommt. `M` und der Lautstärkeregler gelten auch für die Musik.
+
+---
+
+## Architektur (Kurzfassung)
+
+Details, Datenfluss und die Anleitung für neue Spiele stehen in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ```
 src/
-├── core/            1) Reine Domänenlogik, kein macroquad
-│   ├── board.rs        Matrix 10×40, is_valid_position, Line Clears (Naive Gravity)
-│   ├── piece.rs        Tetrominos, Rotationszustände, Bounding Boxes
-│   ├── srs.rs          SRS-Kick-Tabellen + Rotationsauflösung (y-Inversion)
-│   ├── rng.rs          SplitMix64 + Fisher-Yates-7-Bag (ohne rand-Crate)
-│   ├── flow.rs         Flow-Meter, Tiers, Overdrive-Shield
-│   ├── scoring.rs      Guideline-Scoring, B2B, Combo
-│   ├── date.rs         UTC-Kalender → Daily-Seed YYYYMMDD
-│   └── game.rs         GameState: Gravity, Lock Delay, Hold, T-Spin, Top-Out, Modi, Events
-├── engine/          2) Simulation & Input, kein macroquad
-│   ├── input.rs        abstrakte Buttons, Rising-Edge-Erkennung
-│   ├── das.rs          DAS/ARR mit SOCD-Last-Input-Priority
-│   ├── sim.rs          Fixed Timestep 240 Hz, Frame-dt auf 50 ms gekappt
-│   └── autopilot.rs    Bot (Smoke-Test & Demo) – spielt über die echte Input-Pipeline
-├── presentation/    3) Rendering & Audio (macroquad)
-│   ├── stage.rs        virtuelle 1280×720-Bühne, Letterboxing, DPI-korrekte Maus
-│   ├── text.rs         Standard-Font nur in 1×/2×/3× mit 1:1-Texel-Mapping + Schatten
-│   ├── digits.rs       geometrischer Vektor-Ziffern-Renderer (0-9 : . x % # -)
-│   ├── blocks.rs       4-Layer-Minos, Ghost, Farbenblind-Symbole
-│   ├── background.rs   GLSL-Shader: Gradient, Grid, Vignette, BPM-Puls (+CPU-Fallback)
-│   ├── fx.rs           Partikel, Hard-Drop-Schweif, Feder-Bounce, Flashes, Callouts
-│   ├── synth.rs        WAV-Synthese im RAM (RIFF-Header, Pentatonik, Tier-Harmonien)
-│   ├── audio.rs        Wiedergabe mit Graceful Fallback ohne Audiogerät
-│   ├── hud.rs, app.rs  3-Spalten-HUD, Menü, Settings, Pause, Ergebnis
-│   └── icon.rs         prozedurales Fenster-Icon
-├── infrastructure/  4) Persistenz, Uhr, CLI, Smoke-Test
-│   ├── save.rs         %APPDATA%\VibeCodedGame\save.json (atomar, fehlertolerant)
-│   ├── clock.rs        UTC-Datum via SystemTime
-│   └── smoke.rs        headless 500-Tick-Test mit Invarianten
-└── main.rs          Einstiegspunkt: --smoke-test / --demo, Window::from_config
+├── core/            1) Reine Logik, NULL macroquad-Imports (per Test erzwungen)
+│   ├── shared/         SplitMix64 + Tages-Seed, FlowEngine (Tiers, Shield, BPM), Datum
+│   ├── blocks/         Matrix, SRS, 7-Bag, Scoring, GameState (Blocks)
+│   └── snake/          Grid, TurnBuffer, Hindernisse, SnakeGame, Interpolation, Bot
+├── engine/          2) Blocks-Simulation (240-Hz-Fixed-Step, DAS/ARR, Autopilot)
+├── arcade/          3) Die Spiel-Schnittstelle: ArcadeTitle, GameRegistry, FrameEvents,
+│                       ArcadeInput, Nav (Menu/Playing/Paused/Ending/Results)
+├── presentation/    4) Arcade-Controller (app.rs), Menü, Settings, Widget-Toolkit
+│   ├── widgets/        RoundedPanel, ActionButton, ModePillSelector, StatBox, FlowMeterBar,
+│   │                   ModalOverlay (Pause/Ergebnis), ParticleSystem, FloatingCallouts
+│   └── …               Stage (1280×720), Text, Vektor-Ziffern, Shader, Synth, Musik, Audio
+├── titles/          5) Die Spiele als ArcadeTitle-Adapter. default_registry() ist die
+│   ├── blocks/         einzige Stelle, die konkrete Spiele kennt.
+│   └── snake/
+├── infrastructure/  6) Save (Key-Value-Highscores), Uhr, CLI, Smoke-Test
+└── main.rs          Einstiegspunkt
 ```
 
-**Datenfluss:** `presentation::input_map` liest die gehaltenen Tasten in ein `ButtonSet`. `engine::Simulation` erkennt Flanken, wendet DAS/ARR an und treibt `core::GameState` mit festen 240-Hz-Schritten. Der Core erzeugt `GameEvent`s, aus denen die Präsentation Effekte und Sound ableitet. Weil Input abstrakt ist, laufen Smoke-Test und Demo durch exakt dieselbe Pipeline wie ein Spieler.
+`#![forbid(unsafe_code)]` gilt crate-weit. `tests/architecture.rs` erzwingt: kein `macroquad` in `core` und `engine`, `core::shared` kennt kein Spiel, Snake und Blocks kennen sich nicht, und Controller, Menü, Widgets und Save nennen nie einen konkreten Titel. `tests/plugin.rs` registriert ein drittes Spiel nur über die öffentliche API und lässt Smoke-Test, Menü-Layout und Highscores darüber laufen.
 
 ### Robustheit unter Windows
 
 - **Keine Konsole:** `windows_subsystem = "windows"` in Release-Builds.
 - **Kein Audiogerät:** Das Windows-Audio-Backend öffnet das Gerät in einem eigenen Thread und bricht dort per `assert!` ab, wenn keins da ist. Ein Panic-Hook fängt Panics in Nicht-Haupt-Threads ab und schaltet auf „NO DEVICE“ (lautlos). Das Laden der Sounds läuft zusätzlich in `catch_unwind`. Kein `.unwrap()` im Audiopfad.
-- **Defekte/fehlende Save-Datei:** Es wird mit Defaults weitergespielt. Werte werden auf gültige Bereiche geklemmt, geschrieben wird atomar (Temp-Datei + Rename).
+- **Defekte/fehlende Save-Datei:** Es wird mit Defaults weitergespielt. Werte werden auf gültige Bereiche geklemmt, geschrieben wird atomar (Temp-Datei + Rename). Alte Dateien werden automatisch migriert.
 - **Shader-Fehler:** Kompiliert der Shader nicht, zeichnet ein CPU-Fallback Gradient und Grid.
 - **High-DPI:** Viewport in physischen Pixeln, Maus über dieselbe Letterbox-Mathematik (unit-getestet für 100/125/150 %).
 
@@ -113,7 +182,7 @@ src/
 ```powershell
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
-cargo test                                   # Unit-, Architektur- und Smoke-Tests
+cargo test                                   # Unit-, Architektur-, Plugin- und Smoke-Tests
 cargo build --release                        # target\release\VibeCodedGame.exe
 ```
 
@@ -127,10 +196,10 @@ Release-Profil: `opt-level = 3`, `lto = true`, `codegen-units = 1`, `strip = tru
 
 ### CI: GitHub Actions
 
-`.github/workflows/build-release.yml` läuft auf `windows-latest` und führt `fmt --check`, `clippy -D warnings`, `cargo test`, `cargo build --release` und den Smoke-Test der fertigen Exe aus. Danach lädt er `VibeCodedGame.exe` als Artifact hoch. Bei einem Tag `v*` wird zusätzlich ein GitHub-Release erstellt:
+`.github/workflows/build-release.yml` läuft auf `windows-latest` und führt `fmt --check`, `clippy --all-targets -D warnings`, `cargo test`, `cargo build --release` und den Smoke-Test der fertigen Exe (`VibeCodedGame.exe --smoke-test`, alle Spiele) aus. Danach lädt er `VibeCodedGame.exe` als Artifact hoch. Bei einem Tag `v*` wird zusätzlich ein GitHub-Release erstellt:
 
 ```powershell
-git tag v1.0.0; git push origin v1.0.0
+git tag v2.0.0; git push origin v2.0.0
 ```
 
 Falls der Workflow nicht mit gepusht werden konnte (fehlender `workflow`-Scope des Tokens), lässt er sich mit diesem Einzeiler nachträglich aktivieren:
@@ -141,25 +210,20 @@ gh auth refresh -s workflow; git add .github/workflows/build-release.yml; git co
 
 ### Testabdeckung (Auswahl)
 
-- Wand- und Floor-Kicks inkl. y-Inversion, I-Kicks, komplett blockierte Rotation
-- Lock Delay 500 ms, Limit von 15 Resets, kein Reset beim Drücken gegen eine Wand, Reset bei neuer tiefster Zeile, Timer pausiert in der Luft
-- T-Spin Double (3-Corner-Rule) vs. gleiche Lage ohne Rotation; Hold-Regeln; Block Out / Lock Out; Zen ohne Top-Out
-- SplitMix64-Referenzwerte, 7-Bag-Determinismus und -Vollständigkeit, Daily-Datum/Seed
-- Flow-Tiers, Multiplikatoren, Gewinne, Decay, 4-s-Shield, Gravity unabhängig vom Flow
-- Rising Edge (gehaltenes Space = genau ein Hard Drop), DAS/ARR-Timing, SOCD, ARR = 0
-- WAV-RIFF-Header Byte für Byte, Gültigkeit der gesamten Sound-Bank, Pentatonik-Frequenzen
-- Letterbox- und Maus-Mapping, Federamplitude 4–6 px, Save-Roundtrip/Korruption, CLI
-- Smoke-Test (500 Ticks, Bot): Moves, Rotationen, Hold, Hard Drops, Line Clears, Flow-Anstieg, Zellen-Erhaltung, keine Überlappung
-
-## Review- & Optimierungsrunden
-
-1. **Runde 1 – Code-Qualität:** Clippy auf `-D warnings` gebracht (let-chains statt verschachtelter `if`), tote Variablen und ungenutzte HUD-Felder entfernt, Autopilot-Tempo parametrisiert, Architektur-Regeln als Integrationstest festgeschrieben.
-2. **Runde 2 – Feel & Visuals:** Bounce-Federimpuls so kalibriert, dass jeder Hard Drop 4–6 px ergibt (vorher unter 4 px bei kurzen Drops, jetzt per Test abgesichert). Zen-Reset als sanfte Auflösungswelle von unten nach oben statt hartem Clear. Zentrierte „1“ im Vektor-Font. Daily-Karte entzerrt, weil der Text überlief. Prozedurales Fenster-Icon. Attract-Mode mit ruhigerem Bot.
-3. **Runde 3 – Balancing & Release:** Dev-Profil optimiert (flüssiges Debug-Spielen), Release-Profil mit LTO, CI-Smoke-Test über `Start-Process -Wait`, weil eine GUI-Exe in PowerShell sonst nicht abgewartet wird.
+- **Blocks:** Wand- und Floor-Kicks inkl. y-Inversion, I-Kicks, Lock Delay (500 ms, 15 Resets, neue tiefste Zeile), T-Spin (3-Corner-Rule), Hold, Block Out / Lock Out, Zen, SplitMix64-Referenzwerte, 7-Bag, Flow-Tiers, Rising Edge, DAS/ARR, SOCD
+- **Snake:** 180°-TurnBuffer (auch exhaustiv über alle Richtungsfolgen), Tail-Vacating und der Gegenfall bei ausstehendem Wachstum, Portal-Wrap an allen vier Kanten, Victory bei vollem Brett, Daily-Seed (Determinismus, Symmetrie, keine Sackgassen, zusammenhängend), Pulse-Apfel (Timer, +250, +2 Länge, +25 Flow), Geschwindigkeitskurve (monoton, 7,5–18), Zen-Trim, Interpolation ohne Wrap-Streifen, Bot überlebt in jedem Modus
+- **Plattform:** Registry (Duplikat-IDs, Arcade-Score), Navigation, Menü-Layout für 1–9 Spiele, Maus-/Tastatur-Menü, Settings-Logik, Widgets, generische Audio-Cues, Migration alter Save-Dateien, Save-Roundtrip/Korruption, Plugin-Test mit drittem Spiel
+- **Smoke-Test** über alle Spiele und Modi, WAV-Header Byte für Byte, Letterbox- und Maus-Mapping, CLI
 
 ## Speicherort
 
-`%APPDATA%\VibeCodedGame\save.json` enthält Highscores pro Modus, die Sprint-Bestzeit, Daily-Highscores pro Datum und die Einstellungen (DAS/ARR, Lautstärke, Mute, Theme, Farbenblind-Modus). Löschen setzt alles zurück.
+`%APPDATA%\VibeCodedGame\save.json` enthält die Einstellungen (DAS/ARR, Lautstärke, Mute, Theme, Farbenblind, Snake-Boost) und alle Highscores als generische Schlüssel/Wert-Paare:
+
+```json
+{ "highscores": { "blocks:marathon": 5000, "blocks:sprint": 61000, "snake:classic": 1200, "daily:snake:2026-11-16": 800 } }
+```
+
+Neue Spiele brauchen **keine neuen Felder**. Zeit-Modi speichern Millisekunden (kleiner ist besser). Dateien aus Version 1 (mit `best_scores`, `best_sprint_ms`, `daily`) werden beim Laden automatisch in dieses Format übernommen und beim nächsten Speichern im neuen Format geschrieben. Löschen setzt alles zurück.
 
 ## Lizenz
 

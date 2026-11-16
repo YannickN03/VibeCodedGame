@@ -43,11 +43,16 @@ impl Stage {
 
     /// Activates the stage camera (viewport in physical pixels).
     pub fn apply(&self) {
+        self.apply_with_offset(Vec2::ZERO);
+    }
+
+    /// Like [`Stage::apply`], with the picture shifted by `shake` stage units.
+    pub fn apply_with_offset(&self, shake: Vec2) {
         let d = self.dpi;
         let vw = VIRTUAL_W * self.scale;
         let vh = VIRTUAL_H * self.scale;
         let cam = Camera2D {
-            target: vec2(VIRTUAL_W * 0.5, VIRTUAL_H * 0.5),
+            target: vec2(VIRTUAL_W * 0.5, VIRTUAL_H * 0.5) - shake,
             zoom: vec2(2.0 / VIRTUAL_W, 2.0 / VIRTUAL_H),
             viewport: Some((
                 (self.offset.x * d).round() as i32,
