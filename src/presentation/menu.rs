@@ -13,6 +13,7 @@ use super::digits;
 use super::stage::{Stage, VIRTUAL_W};
 use super::text::{self, Align, Size};
 use super::theme::{Theme, with_alpha};
+use super::widgets::shapes::fill_rounded;
 use super::widgets::{ActionButton, ModePillSelector, PillLayout, RoundedPanel};
 
 /// Area available for the cards.
@@ -80,14 +81,21 @@ pub fn layout(n: usize, page: usize) -> CardLayout {
     let w = (inner_w - GAP) / 2.0;
     let h = (CONTENT.h - GAP) / 2.0;
     let x0 = CONTENT.x + ARROW_W + 8.0;
+    let on_page = n.min((page + 1) * PAGE_SIZE) - page * PAGE_SIZE;
     let cards = (page * PAGE_SIZE..n.min((page + 1) * PAGE_SIZE))
         .enumerate()
         .map(|(slot, i)| {
             let (col, row) = ((slot % 2) as f32, (slot / 2) as f32);
-            (
-                i,
-                Rect::new(x0 + col * (w + GAP), CONTENT.y + row * (h + GAP), w, h),
-            )
+            let mut r = Rect::new(x0 + col * (w + GAP), CONTENT.y + row * (h + GAP), w, h);
+            // A lone card on the last page is centred instead of sitting
+            // in the top-left corner (alone in a row: centred horizontally).
+            if on_page == 1 {
+                r.x = CONTENT.x + (CONTENT.w - w) * 0.5;
+                r.y = CONTENT.y + (CONTENT.h - h) * 0.5;
+            } else if on_page == 3 && slot == 2 {
+                r.x = CONTENT.x + (CONTENT.w - w) * 0.5;
+            }
+            (i, r)
         })
         .collect();
     CardLayout {
@@ -562,36 +570,44 @@ pub fn draw(v: &MenuView) {
         }
     }
 
-    // ---- paging arrows
+    // ---- paging: triangle arrows and page dots
     if lay.pages > 1 {
         let (prev, next) = arrow_rects();
-        for (r, label) in [(prev, "<"), (next, ">")] {
+        for (r, left) in [(prev, true), (next, false)] {
             let hover = r.contains(mouse);
-            draw_rectangle(
-                r.x,
-                r.y,
-                r.w,
-                r.h,
+            fill_rounded(
+                r,
+                10.0,
                 with_alpha(th.panel, if hover { 0.95 } else { 0.7 }),
             );
-            text::label(
-                st,
-                label,
-                r.x + r.w * 0.5,
-                r.y + 32.0,
-                Size::X2,
-                th.text,
-                Align::Center,
+            let c = r.center();
+            let (s, dir) = (14.0, if left { -1.0 } else { 1.0 });
+            draw_triangle(
+                vec2(c.x + dir * s, c.y),
+                vec2(c.x - dir * s * 0.6, c.y - s),
+                vec2(c.x - dir * s * 0.6, c.y + s),
+                if hover { th.accent2 } else { th.text },
             );
+        }
+        let dots_y = CONTENT.bottom() + 12.0;
+        let gap = 22.0;
+        let x0 = VIRTUAL_W * 0.5 - gap * (lay.pages as f32 - 1.0) * 0.5;
+        for p in 0..lay.pages {
+            let cx = x0 + gap * p as f32;
+            if p == lay.page {
+                draw_circle(cx, dots_y, 6.0, th.accent2);
+            } else {
+                draw_circle_lines(cx, dots_y, 5.0, 2.0, th.text_dim);
+            }
         }
         text::label(
             st,
-            &format!("PAGE {}/{}", lay.page + 1, lay.pages),
-            VIRTUAL_W * 0.5,
-            CONTENT.bottom() + 4.0,
+            &format!("{} / {}", lay.page + 1, lay.pages),
+            x0 + gap * lay.pages as f32 + 14.0,
+            dots_y - 8.0,
             Size::X1,
             th.text_dim,
-            Align::Center,
+            Align::Left,
         );
     }
 

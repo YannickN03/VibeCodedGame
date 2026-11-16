@@ -81,14 +81,14 @@ fn code_lines(sub: &str) -> Vec<(String, usize, String)> {
 
 #[test]
 fn core_has_a_module_per_game() {
-    for dir in ["shared", "blocks", "snake", "armada", "glide"] {
+    for dir in ["shared", "blocks", "snake", "armada", "glide", "hopper"] {
         assert!(src("core").join(dir).is_dir(), "src/core/{dir} missing");
     }
 }
 
 /// Core modules of the games, and the Blocks-internal paths that are also
 /// re-exported at `core::` level (`core::board`, `core::piece`, ...).
-const GAMES: [&str; 4] = ["blocks", "snake", "armada", "glide"];
+const GAMES: [&str; 5] = ["blocks", "snake", "armada", "glide", "hopper"];
 const BLOCKS_INTERNALS: [&str; 7] = [
     "core::game",
     "core::board",
@@ -141,10 +141,12 @@ fn controller_menu_and_widgets_do_not_name_concrete_titles() {
         "SnakeTitle",
         "VibeCodedArmada",
         "VibeCodedGlide",
+        "VibeCodedHopper",
         "titles::blocks",
         "titles::snake",
         "titles::armada",
         "titles::glide",
+        "titles::hopper",
     ];
     // The controller may only call `titles::default_registry`.
     for dir in ["presentation", "arcade", "infrastructure"] {
@@ -171,6 +173,7 @@ fn only_the_titles_module_registers_concrete_games() {
         "SnakeTitle",
         "VibeCodedArmada",
         "VibeCodedGlide",
+        "VibeCodedHopper",
     ] {
         assert!(code.contains(title), "{title} is not registered");
     }

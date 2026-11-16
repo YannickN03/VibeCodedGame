@@ -4,6 +4,7 @@
 pub mod armada;
 pub mod blocks;
 pub mod glide;
+pub mod hopper;
 pub mod snake;
 
 use crate::arcade::GameRegistry;
@@ -15,5 +16,6 @@ pub fn default_registry() -> GameRegistry {
     r.register(Box::new(snake::SnakeTitle::new()));
     r.register(Box::new(armada::VibeCodedArmada::new()));
     r.register(Box::new(glide::VibeCodedGlide::new()));
+    r.register(Box::new(hopper::VibeCodedHopper::new()));
     r
 }

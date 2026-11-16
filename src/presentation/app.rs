@@ -130,6 +130,12 @@ impl App {
             // Visual check only: not persisted.
             Some("colorblind") => app.save.settings.colorblind = true,
             Some("theme2") => app.save.settings.theme = 1,
+            // Menu page 2 (screenshots of the paged layout).
+            Some("page2") => {
+                let n = app.registry.len();
+                app.menu.focus = menu::PAGE_SIZE.min(n.saturating_sub(1));
+                app.menu.page = 1;
+            }
             _ => {}
         }
         app

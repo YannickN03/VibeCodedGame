@@ -1,11 +1,12 @@
 # VibeCoded Arcade
 
-Eine modulare **Arcade-Plattform in Rust** (`macroquad`) mit vier Spielen, die sich Hauptmenü, Sound, Musik, Effekte, Flow-Engine und Speichersystem teilen:
+Eine modulare **Arcade-Plattform in Rust** (`macroquad`) mit fünf Spielen, die sich Hauptmenü, Sound, Musik, Effekte, Flow-Engine und Speichersystem teilen:
 
 - **VibeCoded Blocks**: reaktionsschnelles, Guideline-treues Block-Stacking-Puzzle mit SRS-Wall-Kicks, Flow-System und viel „Game Feel“.
 - **VibeCoded Snake**: Snake mit 2-Slot-Turn-Buffer, Portal-Wrap, Daily-Hindernissen, Pulse-Äpfeln und Flow-Multiplikatoren.
 - **VibeCoded Armada**: Arcade-Shooter mit 5 Gegnertypen, UFO, Dreadnought-Boss, zerstörbaren Bunkern, Phase-Dash, Graze-Bonus und 5 Power-Ups.
 - **VibeCoded Glide**: präziser Endless-Flyer mit Vibe-Ringen, Close-Skim-Bonus, Phase-Dash und Windböen.
+- **VibeCoded Hopper**: Endless-Hopper mit fünf Biomen, Maglev-Zügen mit Vorwarnung, Treibholz-Flüssen, Near-Miss-Bonus und einer Welt, die nur von Seed, Reihe und Zeit abhängt.
 
 Alles ist deterministisch (eigener `SplitMix64`, keine `rand`-Crate), der Hintergrund ein GLSL-Shader im Takt der Musik, der Soundtrack komplett prozedural. Ausgeliefert als eine einzige `VibeCodedGame.exe` ohne externe Assets.
 
@@ -26,14 +27,14 @@ cargo run -- --smoke-test                    # headless Selbsttest aller Spiele 
 |---|---|
 | `--smoke-test` | Spielt jeden Modus **jedes registrierten Spiels** 300 Ticks mit dem Bot, prüft die Invarianten, fährt Pause, Ende, Ergebnis und Rückkehr ins Hauptmenü ab und validiert Audio und Save. Exit-Code `0` = alles in Ordnung. |
 | `--demo` | Startet direkt den Attract-Mode (ein Bot spielt). |
-| `--game <id>` `--mode <id>` | Startet direkt ein Spiel (`blocks`, `snake`, `armada`, `glide`) in einem Modus. |
+| `--game <id>` `--mode <id>` | Startet direkt ein Spiel (`blocks`, `snake`, `armada`, `glide`, `hopper`) in einem Modus. |
 | `--screenshot <datei.png>` | Speichert nach ein paar Sekunden den Inhalt des **Spielfensters** und beendet sich (mit `--wait <s>`, `--show pause`, `settings`, `colorblind` oder `theme2`, und `--preset boss`, `showcase`, `breach` für Armada). Gedacht für Doku und visuelle Prüfung. |
 
 Voraussetzung: Rust 1.97.0 (Edition 2024; über `rust-toolchain.toml` festgelegt, rustup installiert es automatisch), Windows 10/11. Läuft auch unter Linux/macOS, Ziel-Plattform ist aber Windows.
 
 ## Das Arcade-Hauptmenü
 
-Das Menü ist **datengetrieben**: Es zeigt automatisch eine Karte pro Spiel der `GameRegistry`. Bei 1 bis 3 Spielen stehen die Karten nebeneinander. Mit den **vier** mitgelieferten Spielen ergibt sich ein symmetrisches **2×2-Raster**, ab dem fünften Spiel kommen Seiten mit Pfeilen dazu.
+Das Menü ist **datengetrieben**: Es zeigt automatisch eine Karte pro Spiel der `GameRegistry`. Bei 1 bis 3 Spielen stehen die Karten nebeneinander. Das Menü wächst mit der Registry: Mit den **fünf** mitgelieferten Spielen zeigt Seite 1 ein symmetrisches **2×2-Raster**, Seite 2 das fünfte Spiel zentriert. Dreieck-Pfeile, Seiten-Punkte (`1 / 2`) und `←`/`→` blättern, jedes weitere Spiel (6., 7., 8. …) füllt einfach die Seiten auf.
 
 Jede Karte zeigt Titel, Tagline, eine **lebendige Mini-Animation** des Spiels (`draw_preview`), die Moduswahl, deinen Highscore des gewählten Modus und den Start-Button. Die Leiste oben zeigt das Tages-Datum (`DAILY #YYYY-MM-DD`) und den **Arcade-Score**: die Summe aller gespeicherten Score-Highscores. Zeit-Modi wie der Sprint zählen nicht mit.
 
@@ -219,6 +220,50 @@ Ein ausgelassener Ring setzt die Combo zurück, ohne zu töten. Im **Overdrive (
 
 ---
 
+## VibeCoded Hopper
+
+Ein rasanter Endless-Hopper im Top-Down-2.5D-Look: **15 spielbare Spalten** (Tile-Zentren `0.5 ..= 14.5`, das Feld läuft also von `x = 0` bis `15`) plus je 2 Dekor-Spalten. Die Welt wächst nach oben, die Kamera folgt und scrollt zusätzlich vorwärts.
+
+### Steuerung
+
+| Aktion | Tasten |
+|---|---|
+| Hop | `←` `↑` `↓` `→` oder `W` `A` `S` `D` (Rising Edge, **100 ms Input-Buffer**: ein Tipp während eines Hops wird danach ausgeführt) |
+| Pause | `P` / `Esc` |
+
+Ein Hop dauert 0,11 s und bewegt um genau 1 Tile. Auf Gras, Straße, Gleis und Hazard-Reihen rastet der Spieler auf das Tile-Zentrum (`floor(x) + 0.5`) ein, auf dem Fluss nicht. Ein Baum oder der Spielfeldrand weist den Hop mit einem kleinen Bump ab (kein Tod).
+
+### Die fünf Biome
+
+| Biom | Regeln |
+|---|---|
+| **Cyber-Meadow** | Bäume mit garantiertem Durchgang: mindestens 4 freie Spalten pro Reihe, plus eine freie Korridor-Spalte durch das ganze Segment (per BFS getestet). Die 4 Startreihen sind leer. |
+| **Neon-Highway** | 1 bis 4 Spuren mit Hover-Racer, Cyber-Truck und Cargo-Convoy. Der Abstand zwischen Fahrzeugen reicht immer zum Überqueren (Hop-Zeit mal Spurtempo plus Hitbox plus Reserve). |
+| **Laser-Railway** | Signallichter blinken **1,1 s**, dann rast der Maglev-Zug in 0,35 s durch. |
+| **Pulse-River** | 1 bis 3 Spuren, benachbarte Spuren fließen gegenläufig, Plattformen sind 2,5 bis 4,0 Tiles breit, danach folgt immer Gras oder Straße. Auf einer Plattform (±0,42 Tiles Toleranz an den Kanten) wird der Spieler mit der Strömung mitgenommen. Wasser, oder `x < 0.2` / `x > 14.8` = Splash. |
+| **Hazard-Zone** | Ab Reihe 35: Laser-Gitter mit sichtbarem 1-s-Ladezyklus und Brücken, die 0,9 s nach dem Betreten absinken. |
+
+**Die ganze Welt ist eine reine Funktion von `(Seed, Reihe, Weltzeit)`.** Fahrzeuge, Plattformen, Züge und Laser werden nicht ab ihrem Spawn simuliert, sondern aus einer Phase berechnet. Dadurch sieht ein schneller und ein langsamer Spieler am selben Tag exakt denselben Verkehr (Test: zwei völlig verschiedene Eingabefolgen, identische Reihen und Positionen).
+
+### Todesursachen, Power-Ups, Flow
+
+- **Tod:** Fahrzeug/Zug (AABB mit der verzeihenden 0,62×0,62-Hitbox), Wasser-Splash, Laser, einbrechende Brücke, **Kamera-Sweep** (`Reihe < Kamera - 1,2`) und **Idle-Sweep** (mehr als 6,5 s auf derselben Reihe). Im Zen-Modus gibt es weder Sweeps noch Tod.
+- **Vibe-Shards:** `+50 ×` Flow-Multiplikator und `+8` Flow.
+- **Aegis-Schild:** fängt genau einen Treffer oder Sturz ab und setzt den Spieler mit 1,2 s Schutz auf die letzte sichere Gras-Reihe zurück. Gegen die Sweeps hilft er nicht.
+- **Phase-Boots** (8 s): einmaliges Überspringen eines Baums, schnellere Hops.
+- **Flow:** jeder neue Vorwärts-Schritt innerhalb von 1,3 s erhöht die Combo und lädt `+6` Flow. Ein **Near-Miss** (knapp vor einem Fahrzeug oder Zug die Reihe verlassen, einmal pro Überquerung, nie zusammen mit einem Treffer) gibt `+15` Flow. Im **Overdrive** friert das Wasser unter dem Spieler einmal pro Overdrive-Phase zu einer Eisplattform.
+
+### Modi
+
+| Modus | Regeln |
+|---|---|
+| **Classic Endless** | Unendlicher Aufstieg über alle 5 Biome, Kamera und Verkehr werden sanft schneller |
+| **Blitz Rush** | Die Kamera scrollt deutlich schneller, dafür gibt es mehr Shards und Phase-Boots |
+| **Daily Vibe** | Der `YYYYMMDD`-Seed bestimmt Welt, Verkehrs-Timings und Shard-Positionen |
+| **Zen** | Keine Kamera, kein Tod: ein Treffer setzt auf die letzte sichere Reihe zurück |
+
+---
+
 ## Flow-Engine (gemeinsam)
 
 | Stufe | Flow | Score-Multiplikator | Shader-Takt |
@@ -228,11 +273,11 @@ Ein ausgelassener Ring setzt die Combo zurück, ohne zu töten. Im **Overdrive (
 | Sync | 60–90 | 1.5× | 124 BPM |
 | Overdrive | 90–100 | 2.0× | 132 BPM |
 
-Blocks: Lock < 1,2 s nach dem Spawn +5, Single/Double/Triple/Quad +10/16/22/30, T-Spin +25, Combo +6 × Combo. Snake: Apfel +8 (+4, wenn zwei Äpfel innerhalb von 2 s), Pulse-Apfel +25. Armada: Abschuss +3 (+0,8 je Combo-Stufe), Graze +4, UFO +6, Vibe Surge +30. Glide: Röhre +3, Ring +15, Skim +5. Bei 100 greift ein 4-s-Overdrive-Shield. Nach 1,5 s ohne Ereignis (und ohne Shield) fällt der Flow um 3,5/s. **Flow beeinflusst nie die Gravity bzw. das Schlangentempo.** Das prüft ein eigener Test.
+Blocks: Lock < 1,2 s nach dem Spawn +5, Single/Double/Triple/Quad +10/16/22/30, T-Spin +25, Combo +6 × Combo. Snake: Apfel +8 (+4, wenn zwei Äpfel innerhalb von 2 s), Pulse-Apfel +25. Armada: Abschuss +3 (+0,8 je Combo-Stufe), Graze +4, UFO +6, Vibe Surge +30. Glide: Röhre +3, Ring +15, Skim +5. Hopper: schneller Vorwärts-Schritt +6, Shard +8, Near-Miss +15. Bei 100 greift ein 4-s-Overdrive-Shield. Nach 1,5 s ohne Ereignis (und ohne Shield) fällt der Flow um 3,5/s. **Flow beeinflusst nie die Gravity bzw. das Schlangentempo.** Das prüft ein eigener Test.
 
 ## Hintergrundmusik (gemeinsam)
 
-Die Musik wird beim Start in einem eigenen Thread prozedural erzeugt (keine Asset-Dateien) und als nahtloser 8-Takt-Loop abgespielt. Das Menü hat einen ruhigen Track (84 BPM, Pad, Glocken, kein Schlagzeug). Im Spiel gibt es fünf Stufen, die beim Wechsel ineinander überblenden. Jedes Spiel meldet seine Stufe selbst (`FrameEvents::music_stage`): Blocks nach Level bzw. Sprint-Fortschritt, Snake nach der aktuellen Grundgeschwindigkeit, Armada nach der Welle (der Dreadnought ist der Höhepunkt), Glide nach dem Scroll-Tempo.
+Die Musik wird beim Start in einem eigenen Thread prozedural erzeugt (keine Asset-Dateien) und als nahtloser 8-Takt-Loop abgespielt. Das Menü hat einen ruhigen Track (84 BPM, Pad, Glocken, kein Schlagzeug). Im Spiel gibt es fünf Stufen, die beim Wechsel ineinander überblenden. Jedes Spiel meldet seine Stufe selbst (`FrameEvents::music_stage`): Blocks nach Level bzw. Sprint-Fortschritt, Snake nach der aktuellen Grundgeschwindigkeit, Armada nach der Welle (der Dreadnought ist der Höhepunkt), Glide nach dem Scroll-Tempo, Hopper nach der erreichten Distanz.
 
 | Stufe | Blocks: Marathon / Daily | Blocks: Sprint | Snake (Schritte/s) | Tempo | neu dazu |
 |---|---|---|---|---|---|
@@ -257,7 +302,8 @@ src/
 │   ├── blocks/         Matrix, SRS, 7-Bag, Scoring, GameState (Blocks)
 │   ├── snake/          Grid, TurnBuffer, Hindernisse, SnakeGame, Interpolation, Bot
 │   ├── armada/         AABB, Bunker-Micro-Zellen, Wellen/Drops/UFO-Plan, ArmadaGame, Bot
-│   └── glide/          Kreis-gegen-Rechteck, Kurs- und Böen-Generator, 120-Hz-Physik, GlideGame, Bot
+│   ├── glide/          Kreis-gegen-Rechteck, Kurs- und Böen-Generator, 120-Hz-Physik, GlideGame, Bot
+│   └── hopper/         Welt als reine Funktion (Seed, Reihe, Zeit), HopperGame, Planungs-Bot
 ├── engine/          2) Blocks-Simulation (240-Hz-Fixed-Step, DAS/ARR, Autopilot)
 ├── arcade/          3) Die Spiel-Schnittstelle: ArcadeTitle, GameRegistry, FrameEvents,
 │                       ArcadeInput, Nav (Menu/Playing/Paused/Ending/Results)
@@ -266,17 +312,19 @@ src/
 │   │                   ModalOverlay (Pause/Ergebnis), ParticleSystem, FloatingCallouts
 │   ├── armada_ui.rs    Zeichencode von Armada (Schiff, Gegner, Boss, HUD, Vorschau)
 │   ├── glide_ui.rs     Zeichencode von Glide (Gleiter, Röhren, Ringe, Skyline, HUD, Vorschau)
+│   ├── hopper_ui.rs    Zeichencode von Hopper (Biome, Fahrzeuge, Züge, Wasser, Hopper, HUD, Vorschau)
 │   └── …               Stage (1280×720), Text, Vektor-Ziffern, Shader, Synth, Musik, Audio
 ├── titles/          5) Die Spiele als ArcadeTitle-Adapter. default_registry() ist die
 │   ├── blocks/         einzige Stelle, die konkrete Spiele kennt.
 │   ├── snake/
 │   ├── armada/
-│   └── glide/
+│   ├── glide/
+│   └── hopper/
 ├── infrastructure/  6) Save (Key-Value-Highscores), Uhr, CLI, Smoke-Test
 └── main.rs          Einstiegspunkt
 ```
 
-`#![forbid(unsafe_code)]` gilt crate-weit. `tests/architecture.rs` erzwingt: kein `macroquad` in `core` und `engine`, `core::shared` kennt kein Spiel, Blocks, Snake, Armada und Glide kennen sich nicht, und Controller, Menü, Widgets und Save nennen nie einen konkreten Titel. `tests/plugin.rs` registriert ein drittes Spiel nur über die öffentliche API und lässt Smoke-Test, Menü-Layout und Highscores darüber laufen.
+`#![forbid(unsafe_code)]` gilt crate-weit. `tests/architecture.rs` erzwingt: kein `macroquad` in `core` und `engine`, `core::shared` kennt kein Spiel, Blocks, Snake, Armada, Glide und Hopper kennen sich nicht, und Controller, Menü, Widgets und Save nennen nie einen konkreten Titel. `tests/plugin.rs` registriert ein drittes Spiel nur über die öffentliche API und lässt Smoke-Test, Menü-Layout und Highscores darüber laufen.
 
 ### Robustheit unter Windows
 
@@ -323,6 +371,7 @@ gh auth refresh -s workflow; git add .github/workflows/build-release.yml; git co
 - **Snake:** 180°-TurnBuffer (auch exhaustiv über alle Richtungsfolgen), Tail-Vacating und der Gegenfall bei ausstehendem Wachstum, Portal-Wrap an allen vier Kanten, Victory bei vollem Brett, Daily-Seed (Determinismus, Symmetrie, keine Sackgassen, zusammenhängend), Pulse-Apfel (Timer, +250, +2 Länge, +25 Flow), Geschwindigkeitskurve (monoton, 7,5–18), Zen-Trim, Interpolation ohne Wrap-Streifen, Bot überlebt in jedem Modus
 - **Armada:** AABB-Kollision (Kanten, Enthaltensein, kein Tunneln), Bunker-Kuppel und Micro-Zellen-Zerstörung von beiden Seiten, Formations-Edge-Bounce (kein Steckenbleiben nach Abschuss der Randspalte), Column-Bottom-Shooter, Phase-Dash-i-Frames und Cooldowns, Graze genau einmal (nie bei einem Treffer), alle 5 Power-Ups, Boss-Telegraph (0,9 s), Zen-EMP, Daily-Determinismus unabhängig von den Eingaben
 - **Glide:** 120-Hz-Determinismus (60 vs. 144 Hz bitgenau), Flap setzt `vy`, Dive, Kreis-gegen-Rechteck (Tangente, Ecke, Lippenüberstand), `max_delta_y` auch für bewegte Lücken, Vibe-Ring/Skim-Wertung (genau einmal, nie nach Kontakt), Dash durch eine geschlossene Röhre, Overdrive-Verbreiterung ohne Verengung unter dem Spieler, Zen ohne Bounce-Sturm, Daily-Determinismus unabhängig von den Eingaben
+- **Hopper:** Hop-Timing und Snap, Baum-Bump und Phase-Boots-Sprung, 100-ms-Input-Buffer (angenommen / verworfen), Fahrzeug-Hitbox an den Kanten, Zug-Warnung (1,1 s) und -Durchfahrt, Near-Miss (einmal, nie mit Treffer), Log-Mitnahme und ±0,42-Toleranz, Splash am Rand, Aegis genau einmal, Eisplattform einmal pro Overdrive-Phase, beide Sweeps, Laser-Zyklus und Brücken-Absinken (0,9 s), Fairness-Invarianten über viele Seeds (Korridor-BFS, ≤3 Flüsse, gegenläufige Strömung, Fahrzeug-Abstände), Daily-Determinismus, 60 vs. 144 Hz, Speicher bleibt beschränkt, Planungs-Bot
 - **Plattform:** Registry (Duplikat-IDs, Arcade-Score), Navigation, Menü-Layout für 1–9 Spiele, Maus-/Tastatur-Menü, Settings-Logik, Widgets, generische Audio-Cues, Migration alter Save-Dateien, Save-Roundtrip/Korruption, Plugin-Test mit drittem Spiel
 - **Smoke-Test** über alle Spiele und Modi, WAV-Header Byte für Byte, Letterbox- und Maus-Mapping, CLI
 
