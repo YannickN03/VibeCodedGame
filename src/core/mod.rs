@@ -9,6 +9,7 @@
 
 pub mod armada;
 pub mod blocks;
+pub mod glide;
 pub mod shared;
 pub mod snake;
 

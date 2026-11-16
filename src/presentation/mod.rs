@@ -8,6 +8,7 @@ pub mod armada_ui;
 pub mod audio;
 pub mod background;
 pub mod digits;
+pub mod glide_ui;
 pub mod icon;
 pub mod input_map;
 pub mod menu;

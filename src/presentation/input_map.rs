@@ -42,7 +42,10 @@ pub fn poll_arcade_input() -> ArcadeInput {
             pressed.push(key);
         }
     }
-    ArcadeInput::new(held, pressed)
+    ArcadeInput::new(held, pressed).with_mouse(
+        is_mouse_button_pressed(MouseButton::Left),
+        is_mouse_button_pressed(MouseButton::Right),
+    )
 }
 
 /// Rising edge of any of the keys (menus / global toggles).

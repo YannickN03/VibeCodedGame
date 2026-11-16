@@ -20,7 +20,7 @@ pub const CONTENT: Rect = Rect {
     x: 40.0,
     y: 112.0,
     w: 1200.0,
-    h: 508.0,
+    h: 528.0,
 };
 const GAP: f32 = 24.0;
 /// Cards per page when there are more than three games (2x2 grid).
@@ -120,6 +120,45 @@ pub struct CardParts {
 }
 
 pub fn card_parts(r: Rect, n_modes: usize, compact: bool) -> CardParts {
+    if compact {
+        // 2x2 grid card: big preview on the left, mode pills on the right.
+        let pad = 14.0;
+        let play_h = 30.0;
+        let play = Rect::new(
+            r.x + pad,
+            r.bottom() - 12.0 - play_h,
+            (r.w - 2.0 * pad) * 0.4,
+            play_h,
+        );
+        let best = Rect::new(
+            play.right() + 12.0,
+            play.y,
+            r.right() - pad - play.right() - 12.0,
+            play_h,
+        );
+        let title_y = r.y + 8.0;
+        let tagline_y = r.y + 44.0;
+        let top = r.y + 66.0;
+        let desc_y = play.y - 22.0;
+        let body_h = (desc_y - 6.0 - top).max(0.0);
+        let preview = Rect::new(r.x + pad, top, (r.w - 2.0 * pad) * 0.42, body_h);
+        let pills = Rect::new(
+            preview.right() + 14.0,
+            top,
+            r.right() - pad - preview.right() - 14.0,
+            body_h,
+        );
+        let _ = n_modes;
+        return CardParts {
+            title_y,
+            tagline_y,
+            preview,
+            pills,
+            desc_y,
+            best,
+            play,
+        };
+    }
     let pad = 16.0;
     let bottom = r.bottom() - pad;
     let play = Rect::new(r.x + pad, bottom - 38.0, (r.w - 2.0 * pad) * 0.46, 38.0);
@@ -130,32 +169,8 @@ pub fn card_parts(r: Rect, n_modes: usize, compact: bool) -> CardParts {
         38.0,
     );
     let title_y = r.y + 14.0;
-    let tagline_y = r.y + 14.0 + if compact { 26.0 } else { 38.0 };
+    let tagline_y = r.y + 14.0 + 38.0;
     let top = tagline_y + 28.0;
-    if compact {
-        let preview = Rect::new(
-            r.x + pad,
-            top,
-            (r.w - 2.0 * pad) * 0.42,
-            play.y - 36.0 - top,
-        );
-        let pills = Rect::new(
-            preview.right() + 14.0,
-            top,
-            r.right() - pad - preview.right() - 14.0,
-            play.y - 36.0 - top,
-        );
-        return CardParts {
-            title_y,
-            tagline_y,
-            preview,
-            pills,
-            // One description line between the pills and the play row.
-            desc_y: play.y - 26.0,
-            best,
-            play,
-        };
-    }
     let desc_h = 40.0;
     let desc_y = play.y - 12.0 - desc_h;
     let preview = Rect::new(r.x + pad, top, r.w - 2.0 * pad, (r.h * 0.36).min(210.0));
@@ -457,7 +472,7 @@ pub fn draw(v: &MenuView) {
             game.title(),
             rect.x + 16.0,
             parts.title_y,
-            if lay.compact { Size::X1 } else { Size::X2 },
+            Size::X2,
             if sel { th.text } else { th.text_dim },
             Align::Left,
         );
@@ -509,21 +524,42 @@ pub fn draw(v: &MenuView) {
             .accent(accent)
             .draw(st, th, mouse, pulse);
         let best = best_text(v.save, game.id(), mode, &v.today.iso());
-        text::label(
-            st,
-            if mode.ranked_by_time {
-                "BEST TIME"
-            } else {
-                "BEST"
-            },
-            parts.best.x,
-            parts.best.y,
-            Size::X1,
-            th.text_dim,
-            Align::Left,
-        );
+        let label = if mode.ranked_by_time {
+            "BEST TIME"
+        } else {
+            "BEST"
+        };
         let txt = best.unwrap_or_else(|| "-".into());
-        digits::draw(&txt, parts.best.x, parts.best.y + 20.0, 18.0, th.text);
+        if lay.compact {
+            // One row: label, then the value next to it.
+            let lw = text::label(
+                st,
+                label,
+                parts.best.x,
+                parts.best.y + 8.0,
+                Size::X1,
+                th.text_dim,
+                Align::Left,
+            );
+            digits::draw(
+                &txt,
+                parts.best.x + lw + 12.0,
+                parts.best.y + 5.0,
+                20.0,
+                th.text,
+            );
+        } else {
+            text::label(
+                st,
+                label,
+                parts.best.x,
+                parts.best.y,
+                Size::X1,
+                th.text_dim,
+                Align::Left,
+            );
+            digits::draw(&txt, parts.best.x, parts.best.y + 20.0, 18.0, th.text);
+        }
     }
 
     // ---- paging arrows

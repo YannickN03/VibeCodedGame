@@ -80,40 +80,57 @@ fn code_lines(sub: &str) -> Vec<(String, usize, String)> {
 }
 
 #[test]
-fn core_has_the_three_modules() {
-    for dir in ["shared", "blocks", "snake", "armada"] {
+fn core_has_a_module_per_game() {
+    for dir in ["shared", "blocks", "snake", "armada", "glide"] {
         assert!(src("core").join(dir).is_dir(), "src/core/{dir} missing");
     }
 }
 
+/// Core modules of the games, and the Blocks-internal paths that are also
+/// re-exported at `core::` level (`core::board`, `core::piece`, ...).
+const GAMES: [&str; 4] = ["blocks", "snake", "armada", "glide"];
+const BLOCKS_INTERNALS: [&str; 7] = [
+    "core::game",
+    "core::board",
+    "core::piece",
+    "core::srs",
+    "core::scoring",
+    "core::bag",
+    "core::GameMode",
+];
+
 #[test]
 fn games_do_not_depend_on_each_other_and_shared_knows_no_game() {
+    // `core::shared` must not know any game.
     for (file, line, text) in code_lines("core/shared") {
-        for banned in [
-            "core::blocks",
-            "core::snake",
-            "super::blocks",
-            "super::snake",
-        ] {
-            assert!(
-                !text.contains(banned),
-                "{file}:{line} shared code uses {banned}"
-            );
+        for g in GAMES {
+            for banned in [format!("core::{g}"), format!("super::{g}")] {
+                assert!(
+                    !text.contains(&banned),
+                    "{file}:{line} shared code uses {banned}"
+                );
+            }
         }
     }
-    for (file, line, text) in code_lines("core/snake") {
-        for banned in ["core::blocks", "core::game", "core::board", "core::piece"] {
-            assert!(
-                !text.contains(banned),
-                "{file}:{line} snake core uses {banned}"
-            );
+    // No game core may use another game's core.
+    for game in GAMES {
+        for (file, line, text) in code_lines(&format!("core/{game}")) {
+            for other in GAMES.iter().filter(|o| **o != game) {
+                let banned = format!("core::{other}");
+                assert!(
+                    !text.contains(&banned),
+                    "{file}:{line} {game} core uses {banned}"
+                );
+            }
+            if game != "blocks" {
+                for banned in BLOCKS_INTERNALS {
+                    assert!(
+                        !text.contains(banned),
+                        "{file}:{line} {game} core uses Blocks internals ({banned})"
+                    );
+                }
+            }
         }
-    }
-    for (file, line, text) in code_lines("core/blocks") {
-        assert!(
-            !text.contains("core::snake"),
-            "{file}:{line} blocks core uses snake"
-        );
     }
 }
 
@@ -122,8 +139,12 @@ fn controller_menu_and_widgets_do_not_name_concrete_titles() {
     let concrete = [
         "BlocksTitle",
         "SnakeTitle",
+        "VibeCodedArmada",
+        "VibeCodedGlide",
         "titles::blocks",
         "titles::snake",
+        "titles::armada",
+        "titles::glide",
     ];
     // The controller may only call `titles::default_registry`.
     for dir in ["presentation", "arcade", "infrastructure"] {
@@ -145,6 +166,13 @@ fn controller_menu_and_widgets_do_not_name_concrete_titles() {
 fn only_the_titles_module_registers_concrete_games() {
     let code = fs::read_to_string(src("titles/mod.rs")).expect("titles/mod.rs");
     assert!(code.contains("BlocksTitle") && code.contains("SnakeTitle"));
-    assert!(code.contains("VibeCodedArmada"));
+    for title in [
+        "BlocksTitle",
+        "SnakeTitle",
+        "VibeCodedArmada",
+        "VibeCodedGlide",
+    ] {
+        assert!(code.contains(title), "{title} is not registered");
+    }
     assert!(code.contains("register("));
 }

@@ -58,13 +58,34 @@ impl Key {
 pub struct ArcadeInput {
     held: u32,
     pressed: u32,
+    mouse_left: bool,
+    mouse_right: bool,
 }
 
 impl ArcadeInput {
     pub const EMPTY: ArcadeInput = ArcadeInput {
         held: 0,
         pressed: 0,
+        mouse_left: false,
+        mouse_right: false,
     };
+
+    /// The same input plus the mouse buttons that went down this frame.
+    pub fn with_mouse(mut self, left: bool, right: bool) -> Self {
+        self.mouse_left = left;
+        self.mouse_right = right;
+        self
+    }
+
+    /// Left mouse button pressed this frame.
+    pub fn mouse_left_pressed(&self) -> bool {
+        self.mouse_left
+    }
+
+    /// Right mouse button pressed this frame.
+    pub fn mouse_right_pressed(&self) -> bool {
+        self.mouse_right
+    }
 
     /// A key pressed and released within one frame still counts as held
     /// for that frame, so no tap is ever lost.
@@ -126,5 +147,13 @@ mod tests {
             assert_eq!(seen & k.bit(), 0);
             seen |= k.bit();
         }
+    }
+
+    #[test]
+    fn mouse_buttons_are_separate_from_keys() {
+        let i = ArcadeInput::EMPTY.with_mouse(true, false);
+        assert!(i.mouse_left_pressed() && !i.mouse_right_pressed());
+        assert!(!i.any_down(&Key::ALL), "no key is held");
+        assert!(!ArcadeInput::tap(&[Key::Space]).mouse_left_pressed());
     }
 }
