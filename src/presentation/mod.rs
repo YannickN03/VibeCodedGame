@@ -4,6 +4,7 @@
 //! that touches `macroquad`.
 
 pub mod app;
+pub mod armada_ui;
 pub mod audio;
 pub mod background;
 pub mod digits;

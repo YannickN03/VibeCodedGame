@@ -23,10 +23,12 @@ pub enum Key {
     C,
     Ctrl,
     Shift,
+    J,
+    K,
 }
 
 impl Key {
-    pub const ALL: [Key; 15] = [
+    pub const ALL: [Key; 17] = [
         Key::Left,
         Key::Right,
         Key::Up,
@@ -42,6 +44,8 @@ impl Key {
         Key::C,
         Key::Ctrl,
         Key::Shift,
+        Key::J,
+        Key::K,
     ];
 
     fn bit(self) -> u32 {

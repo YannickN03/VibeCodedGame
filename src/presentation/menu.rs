@@ -137,20 +137,21 @@ pub fn card_parts(r: Rect, n_modes: usize, compact: bool) -> CardParts {
             r.x + pad,
             top,
             (r.w - 2.0 * pad) * 0.42,
-            play.y - 10.0 - top,
+            play.y - 36.0 - top,
         );
         let pills = Rect::new(
             preview.right() + 14.0,
             top,
             r.right() - pad - preview.right() - 14.0,
-            play.y - 10.0 - top,
+            play.y - 36.0 - top,
         );
         return CardParts {
             title_y,
             tagline_y,
             preview,
             pills,
-            desc_y: play.y - 8.0,
+            // One description line between the pills and the play row.
+            desc_y: play.y - 26.0,
             best,
             play,
         };
@@ -491,7 +492,8 @@ pub fn draw(v: &MenuView) {
         .draw(st, th, mouse, pulse);
 
         let desc = wrap(st, mode.description, rect.w - 32.0);
-        for (i, l) in desc.iter().take(2).enumerate() {
+        let max_lines = if lay.compact { 1 } else { 2 };
+        for (i, l) in desc.iter().take(max_lines).enumerate() {
             text::label(
                 st,
                 l,

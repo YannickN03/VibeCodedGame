@@ -9,7 +9,7 @@ use crate::arcade::{ArcadeInput, Key};
 
 /// Every physical key a title may read. `Y` and `Z` are both listed so the
 /// same physical key works on QWERTZ and QWERTY layouts.
-pub const KEYMAP: [(Key, &[KeyCode]); 15] = [
+pub const KEYMAP: [(Key, &[KeyCode]); 17] = [
     (Key::Left, &[KeyCode::Left]),
     (Key::Right, &[KeyCode::Right]),
     (Key::Up, &[KeyCode::Up]),
@@ -25,6 +25,8 @@ pub const KEYMAP: [(Key, &[KeyCode]); 15] = [
     (Key::C, &[KeyCode::C]),
     (Key::Ctrl, &[KeyCode::LeftControl, KeyCode::RightControl]),
     (Key::Shift, &[KeyCode::LeftShift, KeyCode::RightShift]),
+    (Key::J, &[KeyCode::J]),
+    (Key::K, &[KeyCode::K]),
 ];
 
 /// Current keyboard state. A key pressed and released within one frame

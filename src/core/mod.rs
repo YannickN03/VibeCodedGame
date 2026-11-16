@@ -7,6 +7,7 @@
 //! This module must stay free of any rendering/windowing dependency
 //! (no `macroquad` imports) so it can be unit-tested and run headless.
 
+pub mod armada;
 pub mod blocks;
 pub mod shared;
 pub mod snake;

@@ -118,6 +118,9 @@ impl App {
                 })
                 .unwrap_or(0);
             app.start_game(Selection { game, mode });
+            if let (Some(p), Some(g)) = (cli.preset.as_deref(), app.registry.get_mut(game)) {
+                g.dev_preset(p);
+            }
         }
         match cli.show.as_deref() {
             Some("pause") => {
@@ -126,6 +129,7 @@ impl App {
             Some("settings") => app.settings_ui = Some(SettingsState::default()),
             // Visual check only: not persisted.
             Some("colorblind") => app.save.settings.colorblind = true,
+            Some("theme2") => app.save.settings.theme = 1,
             _ => {}
         }
         app

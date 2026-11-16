@@ -1,9 +1,10 @@
 # VibeCoded Arcade
 
-Eine modulare **Arcade-Plattform in Rust** (`macroquad`) mit zwei Spielen, die sich Hauptmenü, Sound, Musik, Effekte, Flow-Engine und Speichersystem teilen:
+Eine modulare **Arcade-Plattform in Rust** (`macroquad`) mit drei Spielen, die sich Hauptmenü, Sound, Musik, Effekte, Flow-Engine und Speichersystem teilen:
 
 - **VibeCoded Blocks**: reaktionsschnelles, Guideline-treues Block-Stacking-Puzzle mit SRS-Wall-Kicks, Flow-System und viel „Game Feel“.
 - **VibeCoded Snake**: Snake mit 2-Slot-Turn-Buffer, Portal-Wrap, Daily-Hindernissen, Pulse-Äpfeln und Flow-Multiplikatoren.
+- **VibeCoded Armada**: Arcade-Shooter mit 5 Gegnertypen, UFO, Dreadnought-Boss, zerstörbaren Bunkern, Phase-Dash, Graze-Bonus und 5 Power-Ups.
 
 Alles ist deterministisch (eigener `SplitMix64`, keine `rand`-Crate), der Hintergrund ein GLSL-Shader im Takt der Musik, der Soundtrack komplett prozedural. Ausgeliefert als eine einzige `VibeCodedGame.exe` ohne externe Assets.
 
@@ -24,14 +25,14 @@ cargo run -- --smoke-test                    # headless Selbsttest aller Spiele 
 |---|---|
 | `--smoke-test` | Spielt jeden Modus **jedes registrierten Spiels** 300 Ticks mit dem Bot, prüft die Invarianten, fährt Pause, Ende, Ergebnis und Rückkehr ins Hauptmenü ab und validiert Audio und Save. Exit-Code `0` = alles in Ordnung. |
 | `--demo` | Startet direkt den Attract-Mode (ein Bot spielt). |
-| `--game <id>` `--mode <id>` | Startet direkt ein Spiel (`blocks`, `snake`) in einem Modus. |
-| `--screenshot <datei.png>` | Speichert nach ein paar Sekunden den Inhalt des **Spielfensters** und beendet sich (mit `--wait <s>`, `--show pause`, `settings` oder `colorblind`). Gedacht für Doku und visuelle Prüfung. |
+| `--game <id>` `--mode <id>` | Startet direkt ein Spiel (`blocks`, `snake`, `armada`) in einem Modus. |
+| `--screenshot <datei.png>` | Speichert nach ein paar Sekunden den Inhalt des **Spielfensters** und beendet sich (mit `--wait <s>`, `--show pause`, `settings`, `colorblind` oder `theme2`, und `--preset boss`, `showcase`, `breach` für Armada). Gedacht für Doku und visuelle Prüfung. |
 
 Voraussetzung: Rust 1.97.0 (Edition 2024; über `rust-toolchain.toml` festgelegt, rustup installiert es automatisch), Windows 10/11. Läuft auch unter Linux/macOS, Ziel-Plattform ist aber Windows.
 
 ## Das Arcade-Hauptmenü
 
-Das Menü ist **datengetrieben**: Es zeigt automatisch eine Karte pro Spiel der `GameRegistry`. Bei 1 bis 3 Spielen stehen die Karten nebeneinander, ab 4 Spielen als 2×2-Raster mit Seiten-Pfeilen.
+Das Menü ist **datengetrieben**: Es zeigt automatisch eine Karte pro Spiel der `GameRegistry`. Bei 1 bis 3 Spielen (aktuell genau 3) stehen die Karten nebeneinander, ab 4 Spielen als 2×2-Raster mit Seiten-Pfeilen.
 
 Jede Karte zeigt Titel, Tagline, eine **lebendige Mini-Animation** des Spiels (`draw_preview`), die Moduswahl, deinen Highscore des gewählten Modus und den Start-Button. Die Leiste oben zeigt das Tages-Datum (`DAILY #YYYY-MM-DD`) und den **Arcade-Score**: die Summe aller gespeicherten Score-Highscores. Zeit-Modi wie der Sprint zählen nicht mit.
 
@@ -116,6 +117,64 @@ Nach 25 s ohne Eingabe startet der Attract-Mode. In jedem Spiel pausiert `P`/`Es
 
 ---
 
+## VibeCoded Armada
+
+Ein moderner Space-Invaders-Shooter in einer `900×640`-Arena (zentriert in der 1280×720-Bühne, links und rechts je ein HUD-Panel). Das Schiff steht bei `y = 595`, die Defense Line bei `y = 560`.
+
+### Steuerung
+
+| Aktion | Tasten |
+|---|---|
+| Bewegen | `←` `→` oder `A` `D` (420 Einheiten/s) |
+| Feuern | `Space` / `W` / `↑` / `J`, gedrückt halten = Dauerfeuer (Cooldown 0,22 s, max. 3 Salven gleichzeitig) |
+| Phase-Dash | `Shift` / `C` / `K`: 0,16 s Boost mit **0,22 s Unverwundbarkeit**, Cooldown 1,8 s (Bullet Swarm: 1,1 s) |
+| Pause | `P` / `Esc` |
+
+Fire- und Dash-Tastendrücke werden kurz gepuffert, ein Tipp geht also auch zwischen zwei Simulationsschritten nicht verloren.
+
+### Gegner und Wellen
+
+| Typ | HP | Punkte | Verhalten |
+|---|---|---|---|
+| Scout Drone | 1 | 100 | Frontkämpfer, gerade Plasma-Bolzen |
+| Interceptor | 1 | 150 | Schüsse (teils als Zwillinge) auf die X-Position des Spielers |
+| Aegis Striker | 2 | 250 | Schild: erster Treffer bricht ihn (Riss und Metall-Ping) |
+| Phase Weaver | 2 | 300 | Pendelt zwischen Slots und lässt bevorzugt Power-Ups fallen |
+| Command Mothership (UFO) | 1 | 500–1500 | Alle 18–25 s bei `y = 36`, lässt garantiert eine Kapsel fallen |
+
+- **Formation:** 10 Spalten, bewegt sich geschlossen. Berührt der äußerste *lebende* Gegner den Rand (`x ≤ 24` oder `x ≥ 876`), wird geklemmt, die Formation rückt um 18 Einheiten nach unten, kehrt um und wird mit weniger Gegnern logarithmisch schneller.
+- **Column-Bottom-Shooter:** Nur der unterste lebende Gegner jeder Spalte feuert. Gleichzeitig sind je nach Welle 4 bis 7 Gegner-Projektile erlaubt.
+- **Dreadnought** (jede 5. Welle): Kern (25+ HP), zwei zerstörbare Seiten-Geschütze und ein Laser-Sweep, der **0,9 s vorher** als Warnlinie angezeigt wird.
+- **Bunker:** 3 Kuppeln aus je einem `7×4`-Raster von Micro-Zellen (unten in der Mitte offen). Jeder Treffer, auch durch eigene Schüsse, entfernt genau eine Zelle.
+- **Game Over:** Hull 0 oder ein Gegner erreicht die Defense Line.
+
+### Power-Ups (Einsammeln: +150 Punkte)
+
+| Kapsel | Wirkung |
+|---|---|
+| `TRI-SPREAD` (10 s) | 3 gefächerte Bolzen |
+| `RAIL-BEAM` (8 s) | Sofortiger Strahl, der ganze Gegner-Spalten durchschlägt |
+| `OVERCLOCK` (10 s) | Halber Feuer-Cooldown, +25 % Schiffstempo |
+| `AEGIS REPAIR` | +1 Hull (bei vollem Hull: alle Bunker-Zellen repariert) |
+| `VIBE SURGE` | +30 Flow und eine EMP-Welle, die alle Gegner-Projektile auflöst |
+
+Ein Treffer kostet 1 Hull (Start 3, max. 5), gibt 1,5 s Schild und setzt aktive Upgrades zurück.
+
+### Flow und Graze
+
+Dieselbe Flow-Engine wie in den anderen Spielen. Abschüsse innerhalb von 2,5 s bauen eine Combo auf. **Graze:** Streift ein Gegner-Projektil das Schiff im Radius 22 ohne zu treffen, gibt es einmalig pro Projektil `+4` Flow und `+50` Punkte (`"GRAZE!"`). Im Zustand **Overdrive (2,0×)** bekommt das Schiff zusätzliche Flügelspitzen-Blaster und einen chromatischen Neon-Schweif.
+
+### Modi
+
+| Modus | Regeln |
+|---|---|
+| **Classic Waves** | Wellen mit steigendem Tempo, UFOs, Bunker und Dreadnought alle 5 Wellen |
+| **Bullet Swarm** | Mehr Interceptoren und Weaver, Dash-Cooldown 1,1 s, höhere Graze-Boni, häufigere Drops |
+| **Daily Vibe** | Der `YYYYMMDD`-Seed bestimmt Aufstellung, UFO-Zeitpunkte und Power-Up-Drops. Alles wird aus dem Seed vorausberechnet und hängt nie vom Spielerverhalten ab. |
+| **Zen** | Kein Game Over: bei Hull 0 oder Durchbruch löst ein EMP aus, löscht Projektile und setzt die Welle zurück |
+
+---
+
 ## Flow-Engine (gemeinsam)
 
 | Stufe | Flow | Score-Multiplikator | Shader-Takt |
@@ -125,11 +184,11 @@ Nach 25 s ohne Eingabe startet der Attract-Mode. In jedem Spiel pausiert `P`/`Es
 | Sync | 60–90 | 1.5× | 124 BPM |
 | Overdrive | 90–100 | 2.0× | 132 BPM |
 
-Blocks: Lock < 1,2 s nach dem Spawn +5, Single/Double/Triple/Quad +10/16/22/30, T-Spin +25, Combo +6 × Combo. Snake: Apfel +8 (+4, wenn zwei Äpfel innerhalb von 2 s), Pulse-Apfel +25. Bei 100 greift ein 4-s-Overdrive-Shield. Nach 1,5 s ohne Ereignis (und ohne Shield) fällt der Flow um 3,5/s. **Flow beeinflusst nie die Gravity bzw. das Schlangentempo.** Das prüft ein eigener Test.
+Blocks: Lock < 1,2 s nach dem Spawn +5, Single/Double/Triple/Quad +10/16/22/30, T-Spin +25, Combo +6 × Combo. Snake: Apfel +8 (+4, wenn zwei Äpfel innerhalb von 2 s), Pulse-Apfel +25. Armada: Abschuss +3 (+0,8 je Combo-Stufe), Graze +4, UFO +6, Vibe Surge +30. Bei 100 greift ein 4-s-Overdrive-Shield. Nach 1,5 s ohne Ereignis (und ohne Shield) fällt der Flow um 3,5/s. **Flow beeinflusst nie die Gravity bzw. das Schlangentempo.** Das prüft ein eigener Test.
 
 ## Hintergrundmusik (gemeinsam)
 
-Die Musik wird beim Start in einem eigenen Thread prozedural erzeugt (keine Asset-Dateien) und als nahtloser 8-Takt-Loop abgespielt. Das Menü hat einen ruhigen Track (84 BPM, Pad, Glocken, kein Schlagzeug). Im Spiel gibt es fünf Stufen, die beim Wechsel ineinander überblenden. Jedes Spiel meldet seine Stufe selbst (`FrameEvents::music_stage`): Blocks nach Level bzw. Sprint-Fortschritt, Snake nach der aktuellen Grundgeschwindigkeit.
+Die Musik wird beim Start in einem eigenen Thread prozedural erzeugt (keine Asset-Dateien) und als nahtloser 8-Takt-Loop abgespielt. Das Menü hat einen ruhigen Track (84 BPM, Pad, Glocken, kein Schlagzeug). Im Spiel gibt es fünf Stufen, die beim Wechsel ineinander überblenden. Jedes Spiel meldet seine Stufe selbst (`FrameEvents::music_stage`): Blocks nach Level bzw. Sprint-Fortschritt, Snake nach der aktuellen Grundgeschwindigkeit, Armada nach der Welle (der Dreadnought ist der Höhepunkt).
 
 | Stufe | Blocks: Marathon / Daily | Blocks: Sprint | Snake (Schritte/s) | Tempo | neu dazu |
 |---|---|---|---|---|---|
@@ -152,22 +211,25 @@ src/
 ├── core/            1) Reine Logik, NULL macroquad-Imports (per Test erzwungen)
 │   ├── shared/         SplitMix64 + Tages-Seed, FlowEngine (Tiers, Shield, BPM), Datum
 │   ├── blocks/         Matrix, SRS, 7-Bag, Scoring, GameState (Blocks)
-│   └── snake/          Grid, TurnBuffer, Hindernisse, SnakeGame, Interpolation, Bot
+│   ├── snake/          Grid, TurnBuffer, Hindernisse, SnakeGame, Interpolation, Bot
+│   └── armada/         AABB, Bunker-Micro-Zellen, Wellen/Drops/UFO-Plan, ArmadaGame, Bot
 ├── engine/          2) Blocks-Simulation (240-Hz-Fixed-Step, DAS/ARR, Autopilot)
 ├── arcade/          3) Die Spiel-Schnittstelle: ArcadeTitle, GameRegistry, FrameEvents,
 │                       ArcadeInput, Nav (Menu/Playing/Paused/Ending/Results)
 ├── presentation/    4) Arcade-Controller (app.rs), Menü, Settings, Widget-Toolkit
 │   ├── widgets/        RoundedPanel, ActionButton, ModePillSelector, StatBox, FlowMeterBar,
 │   │                   ModalOverlay (Pause/Ergebnis), ParticleSystem, FloatingCallouts
+│   ├── armada_ui.rs    Zeichencode von Armada (Schiff, Gegner, Boss, HUD, Vorschau)
 │   └── …               Stage (1280×720), Text, Vektor-Ziffern, Shader, Synth, Musik, Audio
 ├── titles/          5) Die Spiele als ArcadeTitle-Adapter. default_registry() ist die
 │   ├── blocks/         einzige Stelle, die konkrete Spiele kennt.
-│   └── snake/
+│   ├── snake/
+│   └── armada/
 ├── infrastructure/  6) Save (Key-Value-Highscores), Uhr, CLI, Smoke-Test
 └── main.rs          Einstiegspunkt
 ```
 
-`#![forbid(unsafe_code)]` gilt crate-weit. `tests/architecture.rs` erzwingt: kein `macroquad` in `core` und `engine`, `core::shared` kennt kein Spiel, Snake und Blocks kennen sich nicht, und Controller, Menü, Widgets und Save nennen nie einen konkreten Titel. `tests/plugin.rs` registriert ein drittes Spiel nur über die öffentliche API und lässt Smoke-Test, Menü-Layout und Highscores darüber laufen.
+`#![forbid(unsafe_code)]` gilt crate-weit. `tests/architecture.rs` erzwingt: kein `macroquad` in `core` und `engine`, `core::shared` kennt kein Spiel, Blocks, Snake und Armada kennen sich nicht, und Controller, Menü, Widgets und Save nennen nie einen konkreten Titel. `tests/plugin.rs` registriert ein drittes Spiel nur über die öffentliche API und lässt Smoke-Test, Menü-Layout und Highscores darüber laufen.
 
 ### Robustheit unter Windows
 
@@ -212,6 +274,7 @@ gh auth refresh -s workflow; git add .github/workflows/build-release.yml; git co
 
 - **Blocks:** Wand- und Floor-Kicks inkl. y-Inversion, I-Kicks, Lock Delay (500 ms, 15 Resets, neue tiefste Zeile), T-Spin (3-Corner-Rule), Hold, Block Out / Lock Out, Zen, SplitMix64-Referenzwerte, 7-Bag, Flow-Tiers, Rising Edge, DAS/ARR, SOCD
 - **Snake:** 180°-TurnBuffer (auch exhaustiv über alle Richtungsfolgen), Tail-Vacating und der Gegenfall bei ausstehendem Wachstum, Portal-Wrap an allen vier Kanten, Victory bei vollem Brett, Daily-Seed (Determinismus, Symmetrie, keine Sackgassen, zusammenhängend), Pulse-Apfel (Timer, +250, +2 Länge, +25 Flow), Geschwindigkeitskurve (monoton, 7,5–18), Zen-Trim, Interpolation ohne Wrap-Streifen, Bot überlebt in jedem Modus
+- **Armada:** AABB-Kollision (Kanten, Enthaltensein, kein Tunneln), Bunker-Kuppel und Micro-Zellen-Zerstörung von beiden Seiten, Formations-Edge-Bounce (kein Steckenbleiben nach Abschuss der Randspalte), Column-Bottom-Shooter, Phase-Dash-i-Frames und Cooldowns, Graze genau einmal (nie bei einem Treffer), alle 5 Power-Ups, Boss-Telegraph (0,9 s), Zen-EMP, Daily-Determinismus unabhängig von den Eingaben
 - **Plattform:** Registry (Duplikat-IDs, Arcade-Score), Navigation, Menü-Layout für 1–9 Spiele, Maus-/Tastatur-Menü, Settings-Logik, Widgets, generische Audio-Cues, Migration alter Save-Dateien, Save-Roundtrip/Korruption, Plugin-Test mit drittem Spiel
 - **Smoke-Test** über alle Spiele und Modi, WAV-Header Byte für Byte, Letterbox- und Maus-Mapping, CLI
 

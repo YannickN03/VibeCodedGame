@@ -81,7 +81,7 @@ fn code_lines(sub: &str) -> Vec<(String, usize, String)> {
 
 #[test]
 fn core_has_the_three_modules() {
-    for dir in ["shared", "blocks", "snake"] {
+    for dir in ["shared", "blocks", "snake", "armada"] {
         assert!(src("core").join(dir).is_dir(), "src/core/{dir} missing");
     }
 }
@@ -145,5 +145,6 @@ fn controller_menu_and_widgets_do_not_name_concrete_titles() {
 fn only_the_titles_module_registers_concrete_games() {
     let code = fs::read_to_string(src("titles/mod.rs")).expect("titles/mod.rs");
     assert!(code.contains("BlocksTitle") && code.contains("SnakeTitle"));
+    assert!(code.contains("VibeCodedArmada"));
     assert!(code.contains("register("));
 }

@@ -104,6 +104,9 @@ pub trait ArcadeTitle {
     fn set_context(&mut self, _ctx: &TitleContext) {}
     /// Called when the game resumes from pause (held keys must not re-trigger).
     fn on_resume(&mut self, _input: &ArcadeInput) {}
+    /// Developer aid (`--preset <name>`): jump into a named situation, e.g. a
+    /// boss fight, for visual checks. Unknown names are ignored.
+    fn dev_preset(&mut self, _name: &str) {}
     /// Attract mode: a bot plays instead of the keyboard. `None` = unsupported.
     fn demo_update(&mut self, _dt: f32) -> Option<FrameEvents> {
         None

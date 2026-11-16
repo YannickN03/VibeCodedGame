@@ -29,7 +29,7 @@ Die Anwendung kennt keine konkreten Spiele. Sie kennt nur das Trait `ArcadeTitle
 
 | Schicht | Pfad | Darf `macroquad`? | Inhalt |
 |---|---|---|---|
-| Core | `src/core/` | **nein** | `shared/` (RNG, Flow, Datum), `blocks/`, `snake/`: reine, deterministische Regeln |
+| Core | `src/core/` | **nein** | `shared/` (RNG, Flow, Datum), `blocks/`, `snake/`, `armada/`: reine, deterministische Regeln |
 | Engine | `src/engine/` | **nein** | Blocks-Simulation: Fixed Timestep, DAS/ARR, Autopilot |
 | Arcade | `src/arcade/` | ja (nur `Color`, `Rect`, `Vec2`) | `ArcadeTitle`, `FrameEvents`, `ArcadeInput`, `GameRegistry`, `Nav` |
 | Presentation | `src/presentation/` | ja | Controller, Menü, Settings, Widgets, Stage, Shader, Synth, Musik |
@@ -39,8 +39,8 @@ Die Anwendung kennt keine konkreten Spiele. Sie kennt nur das Trait `ArcadeTitle
 Diese Regeln prüft `tests/architecture.rs` automatisch:
 
 - `src/core/` und `src/engine/` enthalten kein `macroquad` (rekursiv über alle Unterordner), `#![forbid(unsafe_code)]` steht in `lib.rs` und `main.rs`.
-- `core::shared` kennt weder `blocks` noch `snake`. Snake und Blocks kennen sich nicht.
-- `presentation/`, `arcade/` und `infrastructure/` nennen niemals `BlocksTitle`, `SnakeTitle` oder `titles::blocks`/`titles::snake`. Nur `src/titles/mod.rs` (`default_registry`) registriert konkrete Spiele.
+- `core::shared` kennt kein Spiel. `blocks`, `snake` und `armada` kennen sich nicht.
+- `presentation/`, `arcade/` und `infrastructure/` nennen niemals `BlocksTitle`, `SnakeTitle`, `VibeCodedArmada` oder `titles::<spiel>`. Nur `src/titles/mod.rs` (`default_registry`) registriert konkrete Spiele.
 
 ## 3. Das Trait `ArcadeTitle`
 
@@ -100,7 +100,9 @@ Alle Strukturen tragen `#[serde(default)]`: Fehlende Felder bekommen Defaults, u
 
 ## 6. Neues Spiel hinzufügen
 
-Beispiel: ein drittes Spiel „TAP RACE“. Der komplette, lauffähige Code steht als Integrationstest in [tests/plugin.rs](tests/plugin.rs).
+Beispiel: ein weiteres Spiel „TAP RACE“. Der komplette, lauffähige Code steht als Integrationstest in [tests/plugin.rs](tests/plugin.rs).
+
+Hinweis: Blocks, Snake und Armada sind die drei mitgelieferten Spiele. Das Beispiel unten ist ein **viertes** Spiel (siehe `tests/plugin.rs`).
 
 **Schritt 1: reine Logik (optional, empfohlen).** Lege `src/core/tap/` an (kein `macroquad`!) und deklariere es in `src/core/mod.rs` mit `pub mod tap;`. Nutze `core::rng::SplitMix64` für Zufall, `core::flow::FlowEngine` für Flow und `core::date::Date::seed()` für Daily-Seeds. Teste die Regeln hier mit Unit-Tests.
 
@@ -191,6 +193,7 @@ pub fn default_registry() -> GameRegistry {
     let mut r = GameRegistry::new();
     r.register(Box::new(blocks::BlocksTitle::new()));
     r.register(Box::new(snake::SnakeTitle::new()));
+    r.register(Box::new(armada::VibeCodedArmada::new()));
     r.register(Box::new(tap::TapTitle::new()));   // <- die eine neue Zeile
     r
 }
@@ -198,7 +201,7 @@ pub fn default_registry() -> GameRegistry {
 
 Fertig. Ohne weitere Änderung gilt automatisch:
 
-- Das Hauptmenü zeigt die dritte Karte (3 Karten nebeneinander) mit Titel, Tagline, `draw_preview`, Modi und Highscore.
+- Das Hauptmenü zeigt die neue Karte (ab dem vierten Spiel als 2×2-Raster) mit Titel, Tagline, `draw_preview`, Modi und Highscore.
 - `1`–`9`, `Enter` und Klick starten das Spiel. Pause (`P`/`Esc`) zeigt `controls_legend`, das Ergebnis-Overlay die Statistik-Tabelle samt Rekord-Badge.
 - Highscores landen unter `tap:tap`, `tap:sprint` bzw. `daily:tap:<Datum>` in `save.json`, ohne neue Felder.
 - `--smoke-test` spielt jeden Modus des Spiels 300 Ticks, fährt zurück ins Hauptmenü und endet mit Exit-Code `0`.

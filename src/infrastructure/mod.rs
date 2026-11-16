@@ -15,7 +15,9 @@ pub struct Cli {
     pub game: Option<String>,
     /// `--mode <id>`: mode of `--game` (default: the first mode).
     pub mode: Option<String>,
-    /// `--show pause|settings|colorblind`: open that overlay at start (visual checks).
+    /// `--preset <name>`: put the started game into a named situation (dev aid).
+    pub preset: Option<String>,
+    /// `--show pause|settings|colorblind|theme2`: open that overlay at start (visual checks).
     pub show: Option<String>,
     /// `--wait <seconds>`: delay before `--screenshot` captures (default 4).
     pub wait: Option<f32>,
@@ -34,6 +36,7 @@ impl Cli {
                 "--demo" => cli.demo = true,
                 "--game" => cli.game = args.next(),
                 "--mode" => cli.mode = args.next(),
+                "--preset" => cli.preset = args.next(),
                 "--wait" => cli.wait = args.next().and_then(|v| v.parse().ok()),
                 "--show" => cli.show = args.next(),
                 "--screenshot" => cli.screenshot = args.next(),
