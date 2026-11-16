@@ -12,7 +12,7 @@ cargo run --release -- --demo       # Attract-Mode: der Bot spielt
 cargo run -- --smoke-test           # headless Selbsttest (kein Fenster), Exit-Code 0
 ```
 
-Voraussetzung: Rust ≥ 1.88 (Edition 2024), Windows 10/11. Läuft auch unter Linux/macOS, Ziel-Plattform ist aber Windows.
+Voraussetzung: Rust 1.97.0 (Edition 2024; über `rust-toolchain.toml` festgelegt, rustup installiert es automatisch), Windows 10/11. Läuft auch unter Linux/macOS, Ziel-Plattform ist aber Windows.
 
 ## Steuerung
 

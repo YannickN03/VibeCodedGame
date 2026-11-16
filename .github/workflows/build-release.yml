@@ -17,15 +17,20 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Install Rust (stable + clippy + rustfmt)
-        uses: dtolnay/rust-toolchain@stable
+      # Pinned to the same version as rust-toolchain.toml so new lints in a
+      # future stable release cannot break the build unexpectedly.
+      - name: Install Rust 1.97.0 (+ clippy, rustfmt)
+        uses: dtolnay/rust-toolchain@1.97.0
         with:
           components: clippy, rustfmt
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+
+      - name: Toolchain info
+        run: rustc --version; cargo clippy --version
 
       - name: Format check
         run: cargo fmt --check
@@ -49,7 +54,7 @@ jobs:
           Write-Host "smoke test passed (exit code 0)"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: VibeCodedGame-windows-x64
           path: target/release/VibeCodedGame.exe
