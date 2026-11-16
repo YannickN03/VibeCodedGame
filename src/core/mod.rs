@@ -11,6 +11,7 @@ pub mod armada;
 pub mod blocks;
 pub mod glide;
 pub mod hopper;
+pub mod maze;
 pub mod shared;
 pub mod snake;
 

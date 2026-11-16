@@ -1,12 +1,13 @@
 # VibeCoded Arcade
 
-Eine modulare **Arcade-Plattform in Rust** (`macroquad`) mit fünf Spielen, die sich Hauptmenü, Sound, Musik, Effekte, Flow-Engine und Speichersystem teilen:
+Eine modulare **Arcade-Plattform in Rust** (`macroquad`) mit sechs Spielen (6-in-1), die sich Hauptmenü, Sound, Musik, Effekte, Flow-Engine und Speichersystem teilen:
 
 - **VibeCoded Blocks**: reaktionsschnelles, Guideline-treues Block-Stacking-Puzzle mit SRS-Wall-Kicks, Flow-System und viel „Game Feel“.
 - **VibeCoded Snake**: Snake mit 2-Slot-Turn-Buffer, Portal-Wrap, Daily-Hindernissen, Pulse-Äpfeln und Flow-Multiplikatoren.
 - **VibeCoded Armada**: Arcade-Shooter mit 5 Gegnertypen, UFO, Dreadnought-Boss, zerstörbaren Bunkern, Phase-Dash, Graze-Bonus und 5 Power-Ups.
 - **VibeCoded Glide**: präziser Endless-Flyer mit Vibe-Ringen, Close-Skim-Bonus, Phase-Dash und Windböen.
 - **VibeCoded Hopper**: Endless-Hopper mit fünf Biomen, Maglev-Zügen mit Vorwarnung, Treibholz-Flüssen, Near-Miss-Bonus und einer Welt, die nur von Seed, Reihe und Zeit abhängt.
+- **VibeCoded Maze**: Neon-Maze-Chaser mit vier Geistern, Warp-Tunnel, Pre-Turn-Steuerung, Vibe-Cores, Blitz-Regeneration und einem täglichen symmetrischen Labyrinth.
 
 Alles ist deterministisch (eigener `SplitMix64`, keine `rand`-Crate), der Hintergrund ein GLSL-Shader im Takt der Musik, der Soundtrack komplett prozedural. Ausgeliefert als eine einzige `VibeCodedGame.exe` ohne externe Assets.
 
@@ -27,14 +28,14 @@ cargo run -- --smoke-test                    # headless Selbsttest aller Spiele 
 |---|---|
 | `--smoke-test` | Spielt jeden Modus **jedes registrierten Spiels** 300 Ticks mit dem Bot, prüft die Invarianten, fährt Pause, Ende, Ergebnis und Rückkehr ins Hauptmenü ab und validiert Audio und Save. Exit-Code `0` = alles in Ordnung. |
 | `--demo` | Startet direkt den Attract-Mode (ein Bot spielt). |
-| `--game <id>` `--mode <id>` | Startet direkt ein Spiel (`blocks`, `snake`, `armada`, `glide`, `hopper`) in einem Modus. |
+| `--game <id>` `--mode <id>` | Startet direkt ein Spiel (`blocks`, `snake`, `armada`, `glide`, `hopper`, `maze`) in einem Modus. |
 | `--screenshot <datei.png>` | Speichert nach ein paar Sekunden den Inhalt des **Spielfensters** und beendet sich (mit `--wait <s>`, `--show pause`, `settings`, `colorblind` oder `theme2`, und `--preset boss`, `showcase`, `breach` für Armada). Gedacht für Doku und visuelle Prüfung. |
 
 Voraussetzung: Rust 1.97.0 (Edition 2024; über `rust-toolchain.toml` festgelegt, rustup installiert es automatisch), Windows 10/11. Läuft auch unter Linux/macOS, Ziel-Plattform ist aber Windows.
 
 ## Das Arcade-Hauptmenü
 
-Das Menü ist **datengetrieben**: Es zeigt automatisch eine Karte pro Spiel der `GameRegistry`. Bei 1 bis 3 Spielen stehen die Karten nebeneinander. Das Menü wächst mit der Registry: Mit den **fünf** mitgelieferten Spielen zeigt Seite 1 ein symmetrisches **2×2-Raster**, Seite 2 das fünfte Spiel zentriert. Dreieck-Pfeile, Seiten-Punkte (`1 / 2`) und `←`/`→` blättern, jedes weitere Spiel (6., 7., 8. …) füllt einfach die Seiten auf.
+Das Menü ist **datengetrieben**: Es zeigt automatisch eine Karte pro Spiel der `GameRegistry`. Bei 1 bis 3 Spielen stehen die Karten nebeneinander. Das Menü wächst mit der Registry: Mit den **sechs** mitgelieferten Spielen zeigt Seite 1 ein symmetrisches **2×2-Raster**, Seite 2 die letzten beiden Spiele (Hopper und Maze), vertikal zentriert. Dreieck-Pfeile, Seiten-Punkte (`1 / 2`) und `←`/`→` blättern, jedes weitere Spiel (7., 8. …) füllt einfach die Seiten auf.
 
 Jede Karte zeigt Titel, Tagline, eine **lebendige Mini-Animation** des Spiels (`draw_preview`), die Moduswahl, deinen Highscore des gewählten Modus und den Start-Button. Die Leiste oben zeigt das Tages-Datum (`DAILY #YYYY-MM-DD`) und den **Arcade-Score**: die Summe aller gespeicherten Score-Highscores. Zeit-Modi wie der Sprint zählen nicht mit.
 
@@ -262,6 +263,60 @@ Ein Hop dauert 0,11 s und bewegt um genau 1 Tile. Auf Gras, Straße, Gleis und H
 | **Daily Vibe** | Der `YYYYMMDD`-Seed bestimmt Welt, Verkehrs-Timings und Shard-Positionen |
 | **Zen** | Keine Kamera, kein Tod: ein Treffer setzt auf die letzte sichere Reihe zurück |
 
+## VibeCoded Maze
+
+Ein Neon-Maze-Chaser im Stil von Pac-Man Championship Edition: **28 × 23 Tiles**, vier Geister mit eigenem Charakter, Warp-Tunnel und ein Flow-System, das Tempo und Punkte belohnt.
+
+### Steuerung
+
+| Aktion | Tasten |
+|---|---|
+| Richtung wünschen | `←` `↑` `↓` `→` oder `W` `A` `S` `D` |
+| Pause | `P` / `Esc` |
+
+Der Wunsch bleibt gepuffert, bis die Richtung frei ist. Abbiegen ist schon bis zu **0,38 Tiles vor der Kreuzungsmitte** möglich (Corner-Snapping: die Querachse gleitet in die neue Gasse, ohne eine Wand zu berühren); eine 180°-Umkehr gilt sofort. Spieler: **7,2 Tiles/s**, `dt` wird auf 0,05 s begrenzt, simuliert wird in festen 1/120-s-Schritten (60 und 144 Hz liefern bitgleiche Spiele).
+
+### Modi
+
+| Modus | Regeln |
+|---|---|
+| **Classic Maze** | Das handgebaute Labyrinth, 3 Leben. Wer alle Punkte frisst, startet die nächste Stufe: Geister werden schneller, Frightened kürzer. |
+| **Blitz Frenzy** | 120 s. Ist eine Hälfte des Labyrinths (x < 14 / x ≥ 14) leer gefressen, füllt sie sich samt Power-Orbs wieder auf: 16+ Geister-Ketten sind möglich. Keine Vibe-Cores. |
+| **Daily Vibe** | Ein prozedurales, **spiegelsymmetrisches** Labyrinth aus dem Tages-Seed (`YYYYMMDD`). Alle Spieler bekommen dasselbe Labyrinth. |
+| **Zen** | Keine Leben: Ein Geister-Kontakt kostet nur Flow (−25), der Geist wird nach Hause geschickt und der Spieler ist 1,5 s unverwundbar. |
+
+Jedes Labyrinth (Classic von Hand, Daily generiert) erfüllt per Test: jede begehbare Kachel hat **mindestens zwei begehbare Nachbarn** (keine Sackgassen), alles ist erreichbar, die Tunnelzeile `y = 11` verbindet `x = 0` mit `x = 27` (`wrap_x`).
+
+### Die vier Geister
+
+Ziel-Kachel im Chase, Gleichstand-Priorität **Hoch > Links > Runter > Rechts**, an Kreuzungen nie eine Umkehr:
+
+| Geist | Embleme (Farbenblind) | Chase-Ziel |
+|---|---|---|
+| **APEX** (rot) | Dreieck | die Spieler-Kachel |
+| **VEKTOR** (blau) | Quadrat | 4 Kacheln vor dem Spieler |
+| **FLANK** (cyan) | Raute | Apex + 2 × ((Spieler + 2·Richtung) − Apex) |
+| **DRIFT** (lila) | Kreis | jagt bei > 8 Tiles Abstand, zieht sich sonst in die untere linke Ecke zurück |
+
+**Scatter 7 s ↔ Chase 20 s** mit erzwungener 180°-Wende bei jedem Wechsel. **Frightened** (7,0 s in Stufe 1, die letzten 2,0 s blinken): 55 % Tempo, Zufallsentscheidungen aus einem `SplitMix64`, Umkehr beim Start. Gefressene Geister laufen als **Augen mit 2,2 × Tempo** in die Box zurück. Im Tunnel (`x ≤ 2` oder `x ≥ 25` auf Zeile 11) sind Geister um 40 % langsamer. Kollision: gleiche Kachel oder Abstand < 0,55 (auch über die Tunnelnaht).
+
+### Punkte und Flow
+
+- Punkt 10, Power-Orb 50. Geister-Kette **200 / 400 / 800 / 1600 × Flow-Multiplikator**, +18 Flow, 60 ms Hit-Stop (7 Schritte, alles friert ein) und Kamera-Shake.
+- **Vibe-Cores**: zwei pro Stufe (bei 30 % und 70 % gefressenen Punkten), 9 s sichtbar, 300 bis 1000 Punkte × Multiplikator, +20 Flow.
+- Flow: +1,5 je Punkt in einer Kette (nächster Punkt innerhalb von 0,65 s), +15 je Orb. **Overdrive:** +20 % Tempo und eine Magnet-Spur.
+- Gegner-Treffer: ein Leben weniger, Positionen werden zurückgesetzt, gefressene Punkte bleiben gefressen.
+
+### Entscheidungen, wo die Vorgabe offen war
+
+- Der Scatter/Chase-Timer **pausiert** während Frightened.
+- Freilassung aus der Box nach Stufenzeit: Apex sofort, Vektor 1 s, Flank 3 s, Drift 6 s.
+- Geister-Tempo: 85 % des Spielertempos, +2 % je Stufe, höchstens 95 %. Frightened `max(7 − 0,7·(Stufe − 1), 2,5)` s, Scatter `max(7 − 0,5·(Stufe − 1), 3)` s.
+- Der erste Punkt einer Kette gibt keinen Flow, erst ein Punkt innerhalb von 0,65 s nach dem vorigen.
+- Ein neuer Orb während Frightened setzt den Timer zurück; die Geister-Kette läuft weiter (sie endet erst mit der Phase).
+- Das **Menü zeigt 2 Seiten**: Seite 1 das 2×2-Raster, Seite 2 die letzten Spiele. Die Vorgabe „2 Seiten à 3 Karten“ gilt für die Menü-Architektur nicht, weil das Menü bereits ein 2×2-Raster pro Seite zeigt. Seite 2 (zwei Karten) wird vertikal zentriert.
+- **Daily** garantiert dasselbe Labyrinth für alle. Der Spielverlauf hängt von den Eingaben ab; der Seed bestimmt nur das Labyrinth und die Zufallsströme (Frightened-Entscheidungen, Core-Werte).
+
 ---
 
 ## Flow-Engine (gemeinsam)
@@ -273,11 +328,11 @@ Ein Hop dauert 0,11 s und bewegt um genau 1 Tile. Auf Gras, Straße, Gleis und H
 | Sync | 60–90 | 1.5× | 124 BPM |
 | Overdrive | 90–100 | 2.0× | 132 BPM |
 
-Blocks: Lock < 1,2 s nach dem Spawn +5, Single/Double/Triple/Quad +10/16/22/30, T-Spin +25, Combo +6 × Combo. Snake: Apfel +8 (+4, wenn zwei Äpfel innerhalb von 2 s), Pulse-Apfel +25. Armada: Abschuss +3 (+0,8 je Combo-Stufe), Graze +4, UFO +6, Vibe Surge +30. Glide: Röhre +3, Ring +15, Skim +5. Hopper: schneller Vorwärts-Schritt +6, Shard +8, Near-Miss +15. Bei 100 greift ein 4-s-Overdrive-Shield. Nach 1,5 s ohne Ereignis (und ohne Shield) fällt der Flow um 3,5/s. **Flow beeinflusst nie die Gravity bzw. das Schlangentempo.** Das prüft ein eigener Test.
+Blocks: Lock < 1,2 s nach dem Spawn +5, Single/Double/Triple/Quad +10/16/22/30, T-Spin +25, Combo +6 × Combo. Snake: Apfel +8 (+4, wenn zwei Äpfel innerhalb von 2 s), Pulse-Apfel +25. Armada: Abschuss +3 (+0,8 je Combo-Stufe), Graze +4, UFO +6, Vibe Surge +30. Glide: Röhre +3, Ring +15, Skim +5. Hopper: schneller Vorwärts-Schritt +6, Shard +8, Near-Miss +15. Maze: Punkt-Kette +1,5, Orb +15, Geist +18, Vibe-Core +20. Bei 100 greift ein 4-s-Overdrive-Shield. Nach 1,5 s ohne Ereignis (und ohne Shield) fällt der Flow um 3,5/s. **Flow beeinflusst nie die Gravity bzw. das Schlangentempo.** Das prüft ein eigener Test.
 
 ## Hintergrundmusik (gemeinsam)
 
-Die Musik wird beim Start in einem eigenen Thread prozedural erzeugt (keine Asset-Dateien) und als nahtloser 8-Takt-Loop abgespielt. Das Menü hat einen ruhigen Track (84 BPM, Pad, Glocken, kein Schlagzeug). Im Spiel gibt es fünf Stufen, die beim Wechsel ineinander überblenden. Jedes Spiel meldet seine Stufe selbst (`FrameEvents::music_stage`): Blocks nach Level bzw. Sprint-Fortschritt, Snake nach der aktuellen Grundgeschwindigkeit, Armada nach der Welle (der Dreadnought ist der Höhepunkt), Glide nach dem Scroll-Tempo, Hopper nach der erreichten Distanz.
+Die Musik wird beim Start in einem eigenen Thread prozedural erzeugt (keine Asset-Dateien) und als nahtloser 8-Takt-Loop abgespielt. Das Menü hat einen ruhigen Track (84 BPM, Pad, Glocken, kein Schlagzeug). Im Spiel gibt es fünf Stufen, die beim Wechsel ineinander überblenden. Jedes Spiel meldet seine Stufe selbst (`FrameEvents::music_stage`): Blocks nach Level bzw. Sprint-Fortschritt, Snake nach der aktuellen Grundgeschwindigkeit, Armada nach der Welle (der Dreadnought ist der Höhepunkt), Glide nach dem Scroll-Tempo, Hopper nach der erreichten Distanz, Maze nach Stufe und Flow-Tier.
 
 | Stufe | Blocks: Marathon / Daily | Blocks: Sprint | Snake (Schritte/s) | Tempo | neu dazu |
 |---|---|---|---|---|---|
@@ -303,7 +358,8 @@ src/
 │   ├── snake/          Grid, TurnBuffer, Hindernisse, SnakeGame, Interpolation, Bot
 │   ├── armada/         AABB, Bunker-Micro-Zellen, Wellen/Drops/UFO-Plan, ArmadaGame, Bot
 │   ├── glide/          Kreis-gegen-Rechteck, Kurs- und Böen-Generator, 120-Hz-Physik, GlideGame, Bot
-│   └── hopper/         Welt als reine Funktion (Seed, Reihe, Zeit), HopperGame, Planungs-Bot
+│   ├── hopper/         Welt als reine Funktion (Seed, Reihe, Zeit), HopperGame, Planungs-Bot
+│   └── maze/           Labyrinth (Classic + Daily-Generator), Geister-Targeting, MazeGame, BFS-Bot
 ├── engine/          2) Blocks-Simulation (240-Hz-Fixed-Step, DAS/ARR, Autopilot)
 ├── arcade/          3) Die Spiel-Schnittstelle: ArcadeTitle, GameRegistry, FrameEvents,
 │                       ArcadeInput, Nav (Menu/Playing/Paused/Ending/Results)
@@ -313,18 +369,20 @@ src/
 │   ├── armada_ui.rs    Zeichencode von Armada (Schiff, Gegner, Boss, HUD, Vorschau)
 │   ├── glide_ui.rs     Zeichencode von Glide (Gleiter, Röhren, Ringe, Skyline, HUD, Vorschau)
 │   ├── hopper_ui.rs    Zeichencode von Hopper (Biome, Fahrzeuge, Züge, Wasser, Hopper, HUD, Vorschau)
+│   ├── maze_ui.rs      Zeichencode von Maze (Neon-Wände, Läufer, Geister, Emblems, HUD, Vorschau)
 │   └── …               Stage (1280×720), Text, Vektor-Ziffern, Shader, Synth, Musik, Audio
 ├── titles/          5) Die Spiele als ArcadeTitle-Adapter. default_registry() ist die
 │   ├── blocks/         einzige Stelle, die konkrete Spiele kennt.
 │   ├── snake/
 │   ├── armada/
 │   ├── glide/
-│   └── hopper/
+│   ├── hopper/
+│   └── maze/
 ├── infrastructure/  6) Save (Key-Value-Highscores), Uhr, CLI, Smoke-Test
 └── main.rs          Einstiegspunkt
 ```
 
-`#![forbid(unsafe_code)]` gilt crate-weit. `tests/architecture.rs` erzwingt: kein `macroquad` in `core` und `engine`, `core::shared` kennt kein Spiel, Blocks, Snake, Armada, Glide und Hopper kennen sich nicht, und Controller, Menü, Widgets und Save nennen nie einen konkreten Titel. `tests/plugin.rs` registriert ein drittes Spiel nur über die öffentliche API und lässt Smoke-Test, Menü-Layout und Highscores darüber laufen.
+`#![forbid(unsafe_code)]` gilt crate-weit. `tests/architecture.rs` erzwingt: kein `macroquad` in `core` und `engine`, `core::shared` kennt kein Spiel, Blocks, Snake, Armada, Glide, Hopper und Maze kennen sich nicht, und Controller, Menü, Widgets und Save nennen nie einen konkreten Titel. `tests/plugin.rs` registriert ein drittes Spiel nur über die öffentliche API und lässt Smoke-Test, Menü-Layout und Highscores darüber laufen.
 
 ### Robustheit unter Windows
 
@@ -372,6 +430,7 @@ gh auth refresh -s workflow; git add .github/workflows/build-release.yml; git co
 - **Armada:** AABB-Kollision (Kanten, Enthaltensein, kein Tunneln), Bunker-Kuppel und Micro-Zellen-Zerstörung von beiden Seiten, Formations-Edge-Bounce (kein Steckenbleiben nach Abschuss der Randspalte), Column-Bottom-Shooter, Phase-Dash-i-Frames und Cooldowns, Graze genau einmal (nie bei einem Treffer), alle 5 Power-Ups, Boss-Telegraph (0,9 s), Zen-EMP, Daily-Determinismus unabhängig von den Eingaben
 - **Glide:** 120-Hz-Determinismus (60 vs. 144 Hz bitgenau), Flap setzt `vy`, Dive, Kreis-gegen-Rechteck (Tangente, Ecke, Lippenüberstand), `max_delta_y` auch für bewegte Lücken, Vibe-Ring/Skim-Wertung (genau einmal, nie nach Kontakt), Dash durch eine geschlossene Röhre, Overdrive-Verbreiterung ohne Verengung unter dem Spieler, Zen ohne Bounce-Sturm, Daily-Determinismus unabhängig von den Eingaben
 - **Hopper:** Hop-Timing und Snap, Baum-Bump und Phase-Boots-Sprung, 100-ms-Input-Buffer (angenommen / verworfen), Fahrzeug-Hitbox an den Kanten, Zug-Warnung (1,1 s) und -Durchfahrt, Near-Miss (einmal, nie mit Treffer), Log-Mitnahme und ±0,42-Toleranz, Splash am Rand, Aegis genau einmal, Eisplattform einmal pro Overdrive-Phase, beide Sweeps, Laser-Zyklus und Brücken-Absinken (0,9 s), Fairness-Invarianten über viele Seeds (Korridor-BFS, ≤3 Flüsse, gegenläufige Strömung, Fahrzeug-Abstände), Daily-Determinismus, 60 vs. 144 Hz, Speicher bleibt beschränkt, Planungs-Bot
+- **Maze:** beide Labyrinthe ohne Sackgassen (Classic und 30 Daily-Seeds, symmetrisch, zusammenhängend, Tunnel), Pre-Turn bis 0,38 Tiles mit Corner-Snapping ohne Wandberührung, sofortige 180°-Umkehr, Tunnel-Warp in beide Richtungen, Targeting aller vier Geister inkl. Gleichstand-Priorität und Gate, erzwungene Umkehr bei Phasenwechsel, Frightened (Umkehr, 55 %, deterministische Zufallswahl), Geister-Kette 200/400/800/1600 × Flow samt Hit-Stop, Augen kehren auf Daily-Labyrinthen heim, Tunnel-Verlangsamung, Vibe-Cores (30 %/70 %, 9 s), Stufenwechsel, Blitz-Regeneration und Zeitende, Zen-Kontakt kostet nur Flow, Kollision über die Tunnelnaht, Daily-Determinismus, 60 vs. 144 Hz, BFS-Bot
 - **Plattform:** Registry (Duplikat-IDs, Arcade-Score), Navigation, Menü-Layout für 1–9 Spiele, Maus-/Tastatur-Menü, Settings-Logik, Widgets, generische Audio-Cues, Migration alter Save-Dateien, Save-Roundtrip/Korruption, Plugin-Test mit drittem Spiel
 - **Smoke-Test** über alle Spiele und Modi, WAV-Header Byte für Byte, Letterbox- und Maus-Mapping, CLI
 

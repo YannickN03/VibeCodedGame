@@ -92,6 +92,9 @@ pub fn layout(n: usize, page: usize) -> CardLayout {
             if on_page == 1 {
                 r.x = CONTENT.x + (CONTENT.w - w) * 0.5;
                 r.y = CONTENT.y + (CONTENT.h - h) * 0.5;
+            } else if on_page == 2 {
+                // A single row of two cards is centred vertically.
+                r.y = CONTENT.y + (CONTENT.h - h) * 0.5;
             } else if on_page == 3 && slot == 2 {
                 r.x = CONTENT.x + (CONTENT.w - w) * 0.5;
             }

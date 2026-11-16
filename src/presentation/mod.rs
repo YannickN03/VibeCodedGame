@@ -12,6 +12,7 @@ pub mod glide_ui;
 pub mod hopper_ui;
 pub mod icon;
 pub mod input_map;
+pub mod maze_ui;
 pub mod menu;
 pub mod music;
 pub mod settings;

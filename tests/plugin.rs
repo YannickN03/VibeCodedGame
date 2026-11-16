@@ -144,8 +144,8 @@ fn the_menu_lays_out_any_number_of_games() {
     registry.register(Box::new(TapTitle::new()));
     let n = registry.len();
     assert_eq!(
-        n, 6,
-        "blocks + snake + armada + glide + hopper + the new game"
+        n, 7,
+        "blocks + snake + armada + glide + hopper + maze + the new game"
     );
     let lay = menu::layout(n, 0);
     assert_eq!(lay.cards.len(), 4, "the first page is a full 2x2 grid");
@@ -153,11 +153,11 @@ fn the_menu_lays_out_any_number_of_games() {
     assert!(lay.compact);
     // The new game's modes are reachable through the menu state.
     let counts: Vec<usize> = registry.iter().map(|g| g.modes().len()).collect();
-    assert_eq!(counts, vec![4, 4, 4, 4, 4, 2]);
+    assert_eq!(counts, vec![4, 4, 4, 4, 4, 4, 2]);
     let mut state = menu::MenuState::new(&counts);
     let out = state.update(
         &menu::MenuInput {
-            digit: Some(5),
+            digit: Some(6),
             ..Default::default()
         },
         &counts,
@@ -165,7 +165,7 @@ fn the_menu_lays_out_any_number_of_games() {
     assert_eq!(
         out.action,
         Some(menu::MenuAction::Play(vibecoded_game::arcade::Selection {
-            game: 5,
+            game: 6,
             mode: 0
         }))
     );
