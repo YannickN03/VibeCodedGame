@@ -1,0 +1,63 @@
+name: build-release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable + clippy + rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Unit & architecture tests
+        run: cargo test
+
+      - name: Release build
+        run: cargo build --release
+
+      # The release exe uses the Windows GUI subsystem (no console), so wait
+      # for the process explicitly and check its exit code.
+      - name: Headless smoke test
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath .\target\release\VibeCodedGame.exe -ArgumentList '--smoke-test' -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "smoke test failed with exit code $($p.ExitCode)" }
+          Write-Host "smoke test passed (exit code 0)"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VibeCodedGame-windows-x64
+          path: target/release/VibeCodedGame.exe
+          if-no-files-found: error
+
+      - name: Publish GitHub release (tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/release/VibeCodedGame.exe
+          generate_release_notes: true

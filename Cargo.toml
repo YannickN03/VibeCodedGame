@@ -1,0 +1,37 @@
+[package]
+name = "vibecoded_game"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.88"
+description = "VibeCoded Blocks - a juicy, deterministic block-stacking puzzle game"
+license = "MIT"
+readme = "README.md"
+publish = false
+
+[lib]
+name = "vibecoded_game"
+path = "src/lib.rs"
+
+[[bin]]
+name = "VibeCodedGame"
+path = "src/main.rs"
+
+[dependencies]
+dirs = "6"
+macroquad = { version = "0.4", default-features = false, features = ["audio"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "unwind"
+
+# Keep the debug build playable (the game loop and synthesis run smoothly).
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
